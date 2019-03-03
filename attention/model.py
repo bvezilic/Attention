@@ -4,17 +4,18 @@ from torch.nn.utils.rnn import pad_sequence, pack_sequence
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, embedding_size):
+    def __init__(self, num_embeddings, hidden_size, embedding_size):
         super().__init__()
-        self.input_size = input_size
+        self.num_embeddings = num_embeddings
         self.hidden_size = hidden_size
         self.embedding_size = embedding_size
 
-        self.embedding = nn.Embedding()
-        self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size)
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_size, padding_idx=0)
+        self.gru = nn.GRU(input_size=embedding_size, hidden_size=hidden_size)
 
     def forward(self, inputs):
-        x_packed = pack_sequence(inputs)
+        x = self.embedding(inputs)
+        x_packed = pack_sequence(x)
         x = self.gru(x_packed)
         x_paded = pad_sequence(x)
 
@@ -22,17 +23,51 @@ class Encoder(nn.Module):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, size):
+    def __init__(self, input_size, output_size):
         super().__init__()
-        self.size = size
+        self.input_size = input_size
+        self.output_size = output_size
 
-    def forward(self, inputs):
-        return None
+        self.attn = nn.Linear(input_size, output_size, bias=False)
+
+    def forward(self, encoder_outputs):
+        # [T, B, enc_hidden_size]
+        attn_encoded = self.attn(encoder_outputs)
 
 
 class Decoder(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, num_embeddings, embedding_size, hidden_size, output_size):
         super().__init__()
+        self.num_embeddings = num_embeddings
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
 
     def forward(self, inputs):
+        pass
+
+
+class Seq2Seq(nn.Module):
+    def __init__(self, enc_vocab_size, dec_vocab_size, enc_hidden_size, dec_hidden_size, output_size, embedding_size,
+                 attn_size):
+        super().__init__()
+        self.enc_vocab_size = enc_hidden_size
+        self.dec_vocab_size = dec_vocab_size
+        self.enc_hidden_size = enc_hidden_size
+        self.dec_hidden_size = dec_hidden_size
+        self.output_size = output_size
+        self.attn_size = attn_size
+
+        self.encoder = Encoder(num_embeddings=enc_vocab_size,
+                               embedding_size=embedding_size,
+                               hidden_size=enc_hidden_size)
+
+        self.attn_layer = AttentionLayer(input_size=embedding_size, output_size=attn_size)
+
+        self.decoder = Decoder(num_embeddings=dec_vocab_size,
+                               embedding_size=embedding_size,
+                               hidden_size=dec_hidden_size,
+                               output_size=embedding_size)
+
+    def forward(self, *input):
         pass
