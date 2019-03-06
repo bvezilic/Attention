@@ -1,4 +1,4 @@
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 
 from data import NMTDataset
 from tokenizer import Tokenizer
@@ -7,14 +7,13 @@ from attention.model import Seq2Seq
 
 
 class Trainer:
-    def __init__(self, dataset, model, optimizer, device, batch_size):
+    def __init__(self, dataset, model, optimizer, device):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
-        self.batch_size = batch_size
         self.device = device
 
-        self.data_loader = DataLoader(dataset, batch_size=128)
+        self.data_loader = DataLoader(dataset, sampler=RandomSampler(dataset))
 
     def train(self, epochs):
         losses = []

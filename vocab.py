@@ -1,12 +1,14 @@
-from collections import Iterable
+from collections import Iterable, namedtuple
 
 from tokenizer import Tokenizer
 
+Token = namedtuple('Token', ["name", "idx"])
+
 
 class Vocabulary:
-    PAD = {"token": "[PAD]", "idx": 0}
-    END = {"token": "[EOS]", "idx": 1}
-    UNKNOWN = {"token": "[UNK]", "idx": 2}
+    pad_token = Token(name="[PAD]", idx=0)
+    end_token = Token(name="[EOS]", idx=1)
+    unknown_token = Token(name="[UNK]", idx=2)
 
     def __init__(self, token2idx_dict=None, idx2token_dict=None):
         assert (token2idx_dict is not None and idx2token_dict is None) or \
@@ -33,17 +35,17 @@ class Vocabulary:
 
     def token2idx(self, tokens):
         if isinstance(tokens, Iterable):
-            return [self.token2idx_dict.get(token, self.UNKNOWN["idx"]) for token in tokens]
+            return [self.token2idx_dict.get(token, self.unknown_token.idx) for token in tokens]
         elif isinstance(tokens, str):
-            return self.token2idx_dict.get(tokens, self.UNKNOWN["idx"])
+            return self.token2idx_dict.get(tokens, self.unknown_token.idx)
         else:
             raise TypeError("Tokens must be of type str or iterable! Given '{}'".format(type(tokens)))
 
     def idx2token(self, idx):
         if isinstance(idx, Iterable):
-            return [self.idx2token_dict.get(i, self.UNKNOWN["token"]) for i in idx]
+            return [self.idx2token_dict.get(i, self.unknown_token.name) for i in idx]
         elif isinstance(idx, int):
-            return self.idx2token_dict.get(idx, self.UNKNOWN["token"])
+            return self.idx2token_dict.get(idx, self.unknown_token.name)
         else:
             raise TypeError("Tokens must be of type int or iterable! Given '{}'".format(type(idx)))
 
@@ -72,9 +74,9 @@ class Vocabulary:
 
     @classmethod
     def from_tokens(cls, tokens):
-        token2idx_dict = {cls.PAD["token"]: cls.PAD["idx"],
-                          cls.END["token"]: cls.END["idx"],
-                          cls.UNKNOWN["token"]: cls.UNKNOWN["idx"]}
+        token2idx_dict = {cls.pad_token.name: cls.pad_token.idx,
+                          cls.end_token.name: cls.end_token.idx,
+                          cls.unknown_token.name: cls.unknown_token.idx}
         idx = 3
         for token in tokens:
             if token not in token2idx_dict:
