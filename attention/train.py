@@ -1,7 +1,11 @@
-from torch.utils.data import DataLoader, RandomSampler
+import torch
+from torch.optim import Adam
+from torch.utils.data import DataLoader
+from torchvision.transforms import Compose
 
 from data import NMTDataset
 from tokenizer import Tokenizer
+from transform import ToTokens, ToIndices, ToTensor
 from vocab import Vocabulary
 from attention.model import Seq2Seq
 
@@ -13,7 +17,7 @@ class Trainer:
         self.optimizer = optimizer
         self.device = device
 
-        self.data_loader = DataLoader(dataset, sampler=RandomSampler(dataset))
+        self.data_loader = DataLoader(dataset, shuffle=True)
 
     def train(self, epochs):
         losses = []
@@ -25,6 +29,12 @@ class Trainer:
                 src = src.to(self.device)
                 tar = tar.to(self.device)
 
+                outputs, h_n = model.encoder(src)
+
+                print("test")
+
+        return losses
+
 
 if __name__ == "__main__":
     # Load the vocabulary
@@ -33,9 +43,24 @@ if __name__ == "__main__":
 
     # Initialize the dataset
     dataset = NMTDataset("../dataset/fra.txt",
-                         src_vocab=eng_vocab,
-                         tar_vocab=fra_vocab,
-                         transform=Tokenizer(end_token=Vocabulary.END["token"]))
+                         src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
+                         tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
 
     # Initialize the model
-    model = Seq2Seq(src_vocab_size=src_vocab.size)
+    model = Seq2Seq(enc_vocab_size=eng_vocab.size,
+                    dec_vocab_size=fra_vocab.size,
+                    enc_hidden_size=512,
+                    dec_hidden_size=512,
+                    output_size=fra_vocab.size,
+                    embedding_size=300,
+                    attn_size=512)
+
+    # Initialize the optimizer
+    optimizer = Adam(model.parameters(), lr=1e-3)
+
+    # Initialize the training and run training loop
+    trainer = Trainer(dataset=dataset,
+                      model=model,
+                      optimizer=optimizer,
+                      device="cpu")
+    trainer.train(20)

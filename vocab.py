@@ -68,7 +68,7 @@ class Vocabulary:
         tokenizer = Tokenizer(do_lower=do_lower)
         tokens = []
         for text in texts:
-            tokens.extend(tokenizer(text))
+            tokens.extend(tokenizer.tokenize(text))
 
         return cls.from_tokens(tokens=tokens)
 
@@ -86,11 +86,11 @@ class Vocabulary:
         return cls(token2idx_dict=token2idx_dict)
 
 
-if __name__ == "__main__":
-    # Create english and french vocabulary from the dataset
+def create_vocabs(filepath, eng_vocab, fra_vocab):
+    """Create vocabularies from English and French texts."""
     from data import NMTDataset
 
-    dataset = NMTDataset("./dataset/fra.txt")
+    dataset = NMTDataset(filepath)
 
     english_texts = dataset.train_data.iloc[:, 0]
     french_texts = dataset.train_data.iloc[:, 1]
@@ -98,5 +98,11 @@ if __name__ == "__main__":
     english_vocab = Vocabulary.from_texts(texts=english_texts)
     french_vocab = Vocabulary.from_texts(texts=french_texts)
 
-    english_vocab.save("./dataset/eng_vocab.txt")
-    french_vocab.save("./dataset/fra_vocab.txt")
+    english_vocab.save(eng_vocab)
+    french_vocab.save(fra_vocab)
+
+
+if __name__ == "__main__":
+    create_vocabs(filepath="./dataset/fra.txt",
+                  eng_vocab="./dataset/eng_vocab.txt",
+                  fra_vocab="./dataset/fra_vocab.txt")

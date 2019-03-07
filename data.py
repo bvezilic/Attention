@@ -4,11 +4,10 @@ from torch.utils.data import Dataset
 
 
 class NMTDataset(Dataset):
-    def __init__(self, filepath, src_vocab=None, tar_vocab=None, transform=None):
+    def __init__(self, filepath, src_transform=None, tar_transform=None):
         self.filepath = filepath
-        self.src_vocab = src_vocab
-        self.tar_vocab = tar_vocab
-        self.transform = transform
+        self.src_transform = src_transform
+        self.tar_transform = tar_transform
 
         # Load the data as pd.DataFrame
         self.train_data = pd.read_csv(self.filepath, sep="\t", names=["English", "French"])
@@ -17,21 +16,17 @@ class NMTDataset(Dataset):
         return len(self.train_data)
 
     def __repr__(self):
-        return "{}: filepath='{}', transform={}".format(
-            self.__class__.__name__, self.filepath, [func.__name__ for func in self.transform] if self.transform else [])
+        return "{}: filepath='{}', src_transform={}, tar_transform={}".format(
+            self.__class__.__name__, self.filepath, self.src_transform, self.tar_transform)
 
     def __getitem__(self, i):
         src, tar = self.train_data.iloc[i]
 
-        if self.transform:
-            src = self.transform(src)
-            tar = self.transform(tar)
+        if self.src_transform:
+            src = self.src_transform(src)
 
-        if self.src_vocab:
-            src = self.src_vocab.token2idx(src)
-
-        if self.tar_vocab:
-            tar = self.tar_vocab.token2idx(tar)
+        if self.tar_transform:
+            tar = self.tar_transform(tar)
 
         return src, tar
 

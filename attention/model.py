@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pad_sequence, pack_sequence
 
 
 class Encoder(nn.Module):
@@ -10,16 +9,17 @@ class Encoder(nn.Module):
         self.hidden_size = hidden_size
         self.embedding_size = embedding_size
 
-        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_size, padding_idx=0)
-        self.gru = nn.GRU(input_size=embedding_size, hidden_size=hidden_size)
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings,
+                                      embedding_dim=embedding_size)
+        self.gru = nn.GRU(input_size=embedding_size,
+                          hidden_size=hidden_size,
+                          batch_first=True)
 
     def forward(self, inputs):
-        x = self.embedding(inputs)
-        x_packed = pack_sequence(x)
-        x = self.gru(x_packed)
-        x_paded = pad_sequence(x)
+        emb = self.embedding(inputs)
+        outputs, h_n = self.gru(emb)
 
-        return x_paded
+        return outputs, h_n
 
 
 class AttentionLayer(nn.Module):
