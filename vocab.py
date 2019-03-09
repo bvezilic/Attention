@@ -26,7 +26,7 @@ class Vocabulary:
             self.token2idx_dict.update({token: idx for idx, token in self.idx2token_dict.items()})
 
     def __repr__(self):
-        return "{}: token2idx_dict={} tokens, idx2token_dict={} tokens".format(
+        return "{}(token2idx_dict={}, idx2token_dict={})".format(
             self.__class__.__name__, len(self.token2idx_dict), len(self.idx2token_dict))
 
     @property

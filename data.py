@@ -16,7 +16,7 @@ class NMTDataset(Dataset):
         return len(self.train_data)
 
     def __repr__(self):
-        return "{}: filepath='{}', src_transform={}, tar_transform={}".format(
+        return "{}(filepath={}, src_transform={}, tar_transform={})".format(
             self.__class__.__name__, self.filepath, self.src_transform, self.tar_transform)
 
     def __getitem__(self, i):
