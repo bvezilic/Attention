@@ -29,7 +29,7 @@ class Trainer:
                 src = src.to(self.device)
                 tar = tar.to(self.device)
 
-                outputs, h_n = model.encoder(src)
+                _ = model(src)
 
                 print("test")
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     dataset = NMTDataset("../dataset/fra.txt",
                          src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
                          tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
-
+    print(dataset)
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,

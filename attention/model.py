@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Encoder(nn.Module):
@@ -28,11 +29,22 @@ class AttentionLayer(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
 
-        self.attn = nn.Linear(input_size, output_size, bias=False)
+        self.attn = nn.Sequential(
+            nn.Linear(input_size, output_size, bias=False),
+            nn.Tanh()
+        )
 
-    def forward(self, encoder_outputs):
-        # [T, B, enc_hidden_size]
-        attn_encoded = self.attn(encoder_outputs)
+    def forward(self, h_n, encoder_outputs):
+        # h_n[1, 1, 512] x enc_outputs[1, T, 512]
+        score = torch.bmm(h_n, encoder_outputs.transpose(2, 1))
+        attn_weights = F.softmax(score, dim=2)
+        # attn_weights[1, 1, T] x h_n[1, 1, 512]
+        c_t = (attn_weights.transpose(2, 1) * h_n).sum(dim=2)  # weighted sum
+
+        x = torch.cat((c_t, h_n), dim=2)
+        attn_vec = self.attn(x)
+
+        return attn_vec
 
 
 class Decoder(nn.Module):
@@ -43,8 +55,26 @@ class Decoder(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-    def forward(self, inputs):
-        pass
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings,
+                                      embedding_dim=embedding_size,
+                                      padding_idx=0)
+        self.gru = nn.GRU(input_size=embedding_size,
+                          hidden_size=hidden_size)
+        self.attn = AttentionLayer(input_size=2*hidden_size,
+                                   output_size=512)
+        self.fc = nn.Sequential(
+            nn.Linear(self.attn.input_size, num_embeddings),
+            nn.Softmax()
+        )
+
+    def forward(self, inputs, encoder_outputs):
+        emb = self.embedding(inputs)
+        outputs, h_n = self.gru(emb)
+
+        # pass hidden state to attention layer
+        attn_vec = self.attn(h_n, encoder_outputs)
+
+        return self.fc(attn_vec)
 
 
 class Seq2Seq(nn.Module):
@@ -61,13 +91,16 @@ class Seq2Seq(nn.Module):
         self.encoder = Encoder(num_embeddings=enc_vocab_size,
                                embedding_size=embedding_size,
                                hidden_size=enc_hidden_size)
-
-        self.attn_layer = AttentionLayer(input_size=embedding_size, output_size=attn_size)
-
         self.decoder = Decoder(num_embeddings=dec_vocab_size,
                                embedding_size=embedding_size,
                                hidden_size=dec_hidden_size,
                                output_size=embedding_size)
 
-    def forward(self, *input):
-        pass
+    def forward(self, inputs, targets=None):
+        encoder_outputs, h_n = self.encoder(inputs)
+        next_word = self.decoder(torch.zeros(1, 1, dtype=torch.long), encoder_outputs)
+
+        if targets:
+            pass
+
+        return next_word
