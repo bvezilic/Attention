@@ -7,14 +7,15 @@ from data import NMTDataset
 from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor
 from vocab import Vocabulary
-from attention.model import Seq2Seq
+from .model import Seq2Seq
 
 
 class Trainer:
-    def __init__(self, dataset, model, optimizer, device):
+    def __init__(self, dataset, model, optimizer, criterion, device):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
+        self.criterion = criterion
         self.device = device
 
         self.data_loader = DataLoader(dataset, shuffle=True)
@@ -25,18 +26,25 @@ class Trainer:
         for epoch in range(epochs):
             print("Epoch: {}/{}".format(epoch+1, epochs))
 
+            running_loss = 0
             for src, tar in self.data_loader:
                 src = src.to(self.device)
                 tar = tar.to(self.device)
 
-                _ = model(src)
+                preds = self.model(src)
+                loss = self.criterion(preds, tar)
+
+                loss.backward()
+                self.optimizer.step()
+
+                running_loss += loss
 
                 print("test")
 
         return losses
 
 
-if __name__ == "__main__":
+def train():
     # Load the vocabulary
     eng_vocab = Vocabulary.from_file("../dataset/eng_vocab.txt")
     fra_vocab = Vocabulary.from_file("../dataset/fra_vocab.txt")
@@ -64,3 +72,7 @@ if __name__ == "__main__":
                       optimizer=optimizer,
                       device="cpu")
     trainer.train(20)
+
+
+if __name__ == "__main__":
+    train()

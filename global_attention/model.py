@@ -29,22 +29,17 @@ class AttentionLayer(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
 
-        self.attn = nn.Sequential(
-            nn.Linear(input_size, output_size, bias=False),
-            nn.Tanh()
-        )
+    def forward(self, ht, encoder_outputs):
+        # Compute the score between output hidden_state of the decoder and each output hidden state of the encoder
+        # h_n[1, 1, 512] x enc_outputs[1, T, 512].T
+        score = torch.bmm(encoder_outputs, ht.transpose(2, 1))
+        # score[1, T, 1]
+        attn_weights = F.softmax(score, dim=1)
+        # attn_weights[1, T, 1] x h_n[1, 1, 512]
+        context_vec = torch.sum(attn_weights * ht, dim=1)
+        # context_vec[1, 1, 512]
 
-    def forward(self, h_n, encoder_outputs):
-        # h_n[1, 1, 512] x enc_outputs[1, T, 512]
-        score = torch.bmm(h_n, encoder_outputs.transpose(2, 1))
-        attn_weights = F.softmax(score, dim=2)
-        # attn_weights[1, 1, T] x h_n[1, 1, 512]
-        c_t = (attn_weights.transpose(2, 1) * h_n).sum(dim=2)  # weighted sum
-
-        x = torch.cat((c_t, h_n), dim=2)
-        attn_vec = self.attn(x)
-
-        return attn_vec
+        return context_vec, attn_weights
 
 
 class Decoder(nn.Module):
@@ -67,7 +62,8 @@ class Decoder(nn.Module):
             nn.Softmax()
         )
 
-    def forward(self, inputs, encoder_outputs):
+    def forward(self, x, hidden, encoder_outputs):
+
         emb = self.embedding(inputs)
         outputs, h_n = self.gru(emb)
 
@@ -97,10 +93,10 @@ class Seq2Seq(nn.Module):
                                output_size=embedding_size)
 
     def forward(self, inputs, targets=None):
-        encoder_outputs, h_n = self.encoder(inputs)
-        next_word = self.decoder(torch.zeros(1, 1, dtype=torch.long), encoder_outputs)
+        encoder_outputs, enc_hidden = self.encoder(inputs)
 
-        if targets:
-            pass
 
-        return next_word
+        start = torch.zeros(1, 1, self.decoder)
+        outputs = self.decoder(encoder_outputs, targets)
+
+        return outputs
