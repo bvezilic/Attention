@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
@@ -46,11 +47,11 @@ class Trainer:
 
 def train():
     # Load the vocabulary
-    eng_vocab = Vocabulary.from_file("../dataset/eng_vocab.txt")
-    fra_vocab = Vocabulary.from_file("../dataset/fra_vocab.txt")
+    eng_vocab = Vocabulary.from_file("./dataset/eng_vocab.txt")
+    fra_vocab = Vocabulary.from_file("./dataset/fra_vocab.txt")
 
     # Initialize the dataset
-    dataset = NMTDataset("../dataset/fra.txt",
+    dataset = NMTDataset("./dataset/fra.txt",
                          src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
                          tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
     print(dataset)
@@ -66,10 +67,14 @@ def train():
     # Initialize the optimizer
     optimizer = Adam(model.parameters(), lr=1e-3)
 
+    # Initialize the loss criterion
+    criterion = nn.CrossEntropyLoss()
+
     # Initialize the training and run training loop
     trainer = Trainer(dataset=dataset,
                       model=model,
                       optimizer=optimizer,
+                      criterion=criterion,
                       device="cpu")
     trainer.train(20)
 
