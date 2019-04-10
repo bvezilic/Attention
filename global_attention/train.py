@@ -32,7 +32,7 @@ class Trainer:
                 src = src.to(self.device)
                 tar = tar.to(self.device)
 
-                preds = self.model(src)
+                preds, attn_weights = self.model(src)
                 loss = self.criterion(preds, tar)
 
                 loss.backward()
