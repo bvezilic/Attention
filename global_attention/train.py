@@ -29,6 +29,8 @@ class Trainer:
 
             running_loss = 0
             for i, (src, tar) in enumerate(self.data_loader):
+                self.optimizer.zero_grad()
+
                 src = src.to(self.device)  # [B, T]
                 tar = tar.to(self.device)  # [B, T]
 
