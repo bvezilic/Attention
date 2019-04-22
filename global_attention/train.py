@@ -28,19 +28,29 @@ class Trainer:
             print("Epoch: {}/{}".format(epoch+1, epochs))
 
             running_loss = 0
-            for src, tar in self.data_loader:
-                src = src.to(self.device)
-                tar = tar.to(self.device)
+            for i, (src, tar) in enumerate(self.data_loader):
+                src = src.to(self.device)  # [B, T]
+                tar = tar.to(self.device)  # [B, T]
 
-                preds, attn_weights = self.model(src)
-                loss = self.criterion(preds, tar)
+                logits, attn_weights = self.model(src)
+                # logits[T, B=1, dec_vocab_size]
+                # attn_weights[T, B=1, enc_outputs-time_steps]
+
+                if logits.size(0) >= tar.size(1):
+                    preds = logits[:tar.size(1)]
+                else:
+                    preds = torch.zeros(tar.size(1), preds.size()[1:])
+                    preds[:logits.size(0)] = logits
+
+                loss = self.criterion(preds.reshape(-1, preds.size(2)), tar.reshape(-1))
 
                 loss.backward()
                 self.optimizer.step()
 
                 running_loss += loss
+                print("Batch loss {}/{}: {}".format(i+1, len(self.data_loader), loss))
 
-                print("test")
+            print("Epoch loss: {}".format(running_loss/len(self.data_loader)))
 
         return losses
 
@@ -62,7 +72,8 @@ def train():
                     dec_hidden_size=512,
                     output_size=fra_vocab.size,
                     embedding_size=300,
-                    attn_size=512)
+                    attn_vec_size=512)
+    model.to("cuda")
 
     # Initialize the optimizer
     optimizer = Adam(model.parameters(), lr=1e-3)
@@ -75,7 +86,7 @@ def train():
                       model=model,
                       optimizer=optimizer,
                       criterion=criterion,
-                      device="cpu")
+                      device="cuda")
     trainer.train(20)
 
 

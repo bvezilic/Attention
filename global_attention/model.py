@@ -44,8 +44,11 @@ class AttentionLayer(nn.Module):
         # attn_weights[batch_size, time_steps, 1] x encoder_outputs[batch_size, time_steps, enc_hidden_state]
         context_vec = torch.sum(attn_weights * encoder_outputs, dim=1)
 
-        # context_vec[batch_size, enc_hidden_state]
         # attn_weights[batch_size, time_steps, 1]
+        attn_weights = attn_weights.squeeze(2)
+
+        # context_vec[batch_size, enc_hidden_state]
+        # attn_weights[batch_size, time_steps]
         return context_vec, attn_weights
 
 
@@ -74,25 +77,26 @@ class Decoder(nn.Module):
 
         self.fc_classifier = nn.Linear(self.attn_vec_size, num_embeddings)
 
-    def forward(self, x, attn_vec, encoder_outputs):
+    def forward(self, word_ids, attn_vec, enc_outputs, prev_hidden):
         """
-        :param x: shape (batch_size,)
+        :param word_ids: shape (batch_size,)
         :param attn_vec: shape (batch_size, attn_size)
-        :param encoder_outputs: (time_step, batch_size, enc_hidden_size)
+        :param enc_outputs: (time_step, batch_size, enc_hidden_size)
+        :param prev_hidden: (batch_size, dec_hidden_size)
         :return:
         """
         # Convert index `x` into embedding
-        x_emb = self.embedding(x)  # x_emb[batch_size, embedding_size]
+        x_emb = self.embedding(word_ids)  # x_emb[batch_size, embedding_size]
 
         # Concatenate embedding and previous attention vector (ht~)
-        x = torch.cat((x_emb, attn_vec), dim=1)  # x[batch_size, embedding_size + attn_size]
+        word_ids = torch.cat((x_emb, attn_vec), dim=1)  # x[batch_size, embedding_size + attn_size]
 
         # Obtain hidden state ht
-        _, ht = self.gru(x.unsqueeze(0))  # ht[time_step=1, batch_size, dec_hidden_size]
+        _, ht = self.gru(word_ids.unsqueeze(0), prev_hidden)  # ht[time_step=1, batch_size, dec_hidden_size]
 
         # Pass ht to attention layer
-        context_vec, attn_weights = self.attn(ht, encoder_outputs)
-
+        context_vec, attn_weights = self.attn(ht, enc_outputs)  # context_vec[batch_size, enc_hidden_state]
+                                                                # attn_weights[batch_size, time_steps, 1]
         # Compute attention vector (ht~)
         merged = torch.cat((context_vec, ht.squeeze(0)), dim=1)  # Remove the num_layers dimension
         attn_vec = self.fc_attnvec(merged)
@@ -100,7 +104,7 @@ class Decoder(nn.Module):
         # Obtain predictions
         preds = self.fc_classifier(attn_vec)
 
-        return preds, attn_vec, attn_weights
+        return preds, attn_vec, attn_weights, ht
 
 
 class Seq2Seq(nn.Module):
@@ -125,23 +129,30 @@ class Seq2Seq(nn.Module):
 
     def forward(self, inputs, targets=None):
         batch_size = inputs.size(0)
-        encoder_outputs, enc_hidden = self.encoder(inputs)
+        enc_outputs, enc_ht = self.encoder(inputs)
 
-        current_idx = torch.zeros(batch_size, dtype=torch.long)  # Start index <PAD>
-        current_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float)  # Start attn vector
+        current_ids = torch.zeros(batch_size, dtype=torch.long, device="cuda")  # Start index <PAD>
+        current_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device="cuda")  # Start attn vector
+        current_ht = enc_ht  # Take encoder hidden state for initial state for decoder
 
         attn_weights_list = []
         predictions = []
         num_steps = 0
-        while current_idx != 1 or num_steps < self.max_sequence:
-            preds, attn_vec, attn_weights = self.decoder(current_idx, current_attn_vec, encoder_outputs)
-
+        while current_ids != 1 and num_steps < self.max_sequence:
+            preds, attn_vec, attn_weights, ht = self.decoder(word_ids=current_ids,
+                                                             attn_vec=current_attn_vec,
+                                                             enc_outputs=enc_outputs,
+                                                             prev_hidden=current_ht)
             attn_weights_list.append(attn_weights)
             predictions.append(preds)
 
-            current_idx = torch.argmax(preds, dim=1)
+            current_ids = torch.argmax(preds, dim=1)
             current_attn_vec = attn_vec
+            current_ht = ht
 
             num_steps += 1
+
+        predictions = torch.stack(predictions)  # shape[time-step, batch_size, dec_vocab_size]
+        attn_weights_list = torch.stack(attn_weights_list)  # shape[time-step, batch_size, enc_outputs]
 
         return predictions, attn_weights_list
