@@ -1,4 +1,5 @@
 import torch
+import json
 from .model import Seq2Seq
 
 
@@ -6,7 +7,7 @@ def save_model(path: str, model: Seq2Seq):
     torch.save({
         "model_params": {
             "enc_vocab_size": model.enc_vocab_size,
-            "dec_vocav_size": model.dec_vocab_size,
+            "dec_vocab_size": model.dec_vocab_size,
             "enc_hidden_size": model.enc_hidden_size,
             "dec_hidden_size": model.dec_hidden_size,
             "output_size": model.output_size,
@@ -25,3 +26,9 @@ def load_model(path):
     model.eval()
 
     return model
+
+
+def read_params(path):
+    with open(path, "r") as f:
+        return json.load(f)
+

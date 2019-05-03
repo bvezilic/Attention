@@ -9,6 +9,7 @@ from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor
 from vocab import Vocabulary
 from .model import Seq2Seq
+from .utils import read_params
 
 
 class Trainer:
@@ -70,27 +71,50 @@ def train():
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,
-                    enc_hidden_size=512,
-                    dec_hidden_size=512,
+                    enc_hidden_size=model_params.enc_hidden_size,
+                    dec_hidden_size=model_params.dec_hidden_size,
                     output_size=fra_vocab.size,
-                    embedding_size=300,
-                    attn_vec_size=512)
-    model.to("cuda")
+                    embedding_size=model_params.embedding_size,
+                    attn_vec_size=model_params.attn_vec_size)
+    model.to(args.device)
 
     # Initialize the optimizer
-    optimizer = Adam(model.parameters(), lr=1e-3)
+    optimizer = Adam(model.parameters(), lr=args.lr)
 
     # Initialize the loss criterion
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(ignore_index=-1)
 
     # Initialize the training and run training loop
     trainer = Trainer(dataset=dataset,
                       model=model,
                       optimizer=optimizer,
                       criterion=criterion,
-                      device="cuda")
+                      device=args.device)
     trainer.train(20)
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=str, default="./dataset/fra.txt",
+                        help="Path to train data set.")
+    parser.add_argument("--src_vocab", type=str, default="./dataset/eng_vocab.txt",
+                        help="Path to source vocabulary")
+    parser.add_argument("--dst_vocab", type=str, default="./dataset/fra_vocab.txt",
+                        help="Path to destination vocabulary")
+    parser.add_argument("--lr", type=float, default=1e-3,
+                        help="Learning rate for optimizer")
+    parser.add_argument("--model_params", type=str, default="./config/global_attention.json",
+                        help="Path to json config file of model parameters")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],
+                        help="Run train on cuda/cpu")
+
+    args = parser.parse_args()
+    model_params = read_params(args.model_params)
+
+    # Validate if cuda is available
+    if args.devie == "cuda" and torch.cuda.is_available() is False:
+        raise ValueError("Set to use cuda, but cuda is not available!")
+
     train()
