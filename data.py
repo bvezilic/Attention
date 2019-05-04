@@ -1,6 +1,7 @@
 import pandas as pd
 
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
 
 
 class NMTDataset(Dataset):
@@ -29,6 +30,22 @@ class NMTDataset(Dataset):
             tar = self.tar_transform(tar)
 
         return src, tar
+
+    @staticmethod
+    def collate_fn(batch):
+        """
+        Pads the input and target tensor
+        :param batch:
+        :return:
+        """
+        inp, tar = zip(*batch)
+
+        # padding
+        padding_value = 0
+        inp = pad_sequence(inp, batch_first=True, padding_value=padding_value)
+        tar = pad_sequence(tar, batch_first=True, padding_value=padding_value)
+
+        return inp, tar
 
 
 if __name__ == "__main__":

@@ -4,22 +4,24 @@ import torch.nn.functional as F
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_embeddings, hidden_size, embedding_size):
+    def __init__(self, num_embeddings, hidden_size, embedding_dim):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.hidden_size = hidden_size
-        self.embedding_size = embedding_size
+        self.embedding_size = embedding_dim
 
         self.embedding = nn.Embedding(num_embeddings=num_embeddings,
-                                      embedding_dim=embedding_size)
-        self.gru = nn.GRU(input_size=embedding_size,
+                                      embedding_dim=embedding_dim)
+        self.gru = nn.GRU(input_size=embedding_dim,
                           hidden_size=hidden_size,
                           batch_first=True)
 
     def forward(self, inputs):
+        # inputs [B, T]
         emb = self.embedding(inputs)
+        # emb [B, T, emb_dim]
         outputs, h_n = self.gru(emb)
-
+        # outputs [B, T, h_t], h_n [B, h_t]
         return outputs, h_n
 
 
@@ -117,10 +119,10 @@ class Seq2Seq(nn.Module):
         self.dec_hidden_size = dec_hidden_size
         self.output_size = output_size
         self.attn_vec_size = attn_vec_size
-        self.max_sequence = 100
+        self.max_sequence = 512
 
         self.encoder = Encoder(num_embeddings=enc_vocab_size,
-                               embedding_size=embedding_size,
+                               embedding_dim=embedding_size,
                                hidden_size=enc_hidden_size)
         self.decoder = Decoder(num_embeddings=dec_vocab_size,
                                embedding_size=embedding_size,
@@ -129,6 +131,9 @@ class Seq2Seq(nn.Module):
 
     def forward(self, inputs, targets=None):
         batch_size = inputs.size(0)
+        mask_inputs = inputs != 0
+
+        # Obtain outputs from encoder
         enc_outputs, enc_ht = self.encoder(inputs)
 
         current_ids = torch.zeros(batch_size, dtype=torch.long, device="cuda")  # Start index <PAD>

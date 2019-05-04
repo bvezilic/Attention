@@ -8,19 +8,20 @@ from data import NMTDataset
 from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor
 from vocab import Vocabulary
-from .model import Seq2Seq
-from .utils import read_params
+from model import Seq2Seq
+from utils import read_params
 
 
 class Trainer:
-    def __init__(self, dataset, model, optimizer, criterion, device):
+    def __init__(self, dataset, model, optimizer, criterion, batch_size, device):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
         self.device = device
+        self.batch_size = batch_size
 
-        self.data_loader = DataLoader(dataset, shuffle=True)
+        self.data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size, collate_fn=dataset.collate_fn)
 
     def train(self, epochs):
         losses = []
@@ -29,13 +30,13 @@ class Trainer:
             print("Epoch: {}/{}".format(epoch+1, epochs))
 
             running_loss = 0
-            for i, (src, tar) in enumerate(self.data_loader):
+            for i, (inp, tar) in enumerate(self.data_loader):
                 self.optimizer.zero_grad()
 
-                src = src.to(self.device)  # [B, T]
+                inp = inp.to(self.device)  # [B, T]
                 tar = tar.to(self.device)  # [B, T]
 
-                logits, attn_weights = self.model(src)
+                logits, attn_weights = self.model(inp)
                 # logits[T, B=1, dec_vocab_size]
                 # attn_weights[T, B=1, enc_outputs-time_steps]
 
@@ -60,22 +61,22 @@ class Trainer:
 
 def train():
     # Load the vocabulary
-    eng_vocab = Vocabulary.from_file("./dataset/eng_vocab.txt")
-    fra_vocab = Vocabulary.from_file("./dataset/fra_vocab.txt")
+    eng_vocab = Vocabulary.from_file(args.src_vocab)
+    fra_vocab = Vocabulary.from_file(args.dst_vocab)
 
     # Initialize the dataset
-    dataset = NMTDataset("./dataset/fra.txt",
+    dataset = NMTDataset(args.data,
                          src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
                          tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
     print(dataset)
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,
-                    enc_hidden_size=model_params.enc_hidden_size,
-                    dec_hidden_size=model_params.dec_hidden_size,
+                    enc_hidden_size=model_params["enc_hidden_size"],
+                    dec_hidden_size=model_params["dec_hidden_size"],
                     output_size=fra_vocab.size,
-                    embedding_size=model_params.embedding_size,
-                    attn_vec_size=model_params.attn_vec_size)
+                    embedding_size=model_params["embedding_size"],
+                    attn_vec_size=model_params["attn_vec_size"])
     model.to(args.device)
 
     # Initialize the optimizer
@@ -89,6 +90,7 @@ def train():
                       model=model,
                       optimizer=optimizer,
                       criterion=criterion,
+                      batch_size=args.batch_size,
                       device=args.device)
     trainer.train(20)
 
@@ -97,15 +99,17 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, default="./dataset/fra.txt",
+    parser.add_argument("--data", type=str, default="../dataset/fra.txt",
                         help="Path to train data set.")
-    parser.add_argument("--src_vocab", type=str, default="./dataset/eng_vocab.txt",
+    parser.add_argument("--src_vocab", type=str, default="../dataset/eng_vocab.txt",
                         help="Path to source vocabulary")
-    parser.add_argument("--dst_vocab", type=str, default="./dataset/fra_vocab.txt",
+    parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
+    parser.add_argument("--batch_size", type=int, default=32,
+                        help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")
-    parser.add_argument("--model_params", type=str, default="./config/global_attention.json",
+    parser.add_argument("--model_params", type=str, default="../config/global_attention.json",
                         help="Path to json config file of model parameters")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],
                         help="Run train on cuda/cpu")
@@ -114,7 +118,7 @@ if __name__ == "__main__":
     model_params = read_params(args.model_params)
 
     # Validate if cuda is available
-    if args.devie == "cuda" and torch.cuda.is_available() is False:
+    if args.device == "cuda" and torch.cuda.is_available() is False:
         raise ValueError("Set to use cuda, but cuda is not available!")
 
     train()

@@ -1,6 +1,6 @@
 import torch
 import json
-from .model import Seq2Seq
+from model import Seq2Seq
 
 
 def save_model(path: str, model: Seq2Seq):
@@ -12,7 +12,7 @@ def save_model(path: str, model: Seq2Seq):
             "dec_hidden_size": model.dec_hidden_size,
             "output_size": model.output_size,
             "embedding_size": model.embedding_size,
-            "attn_size": model.attn_size
+            "attn_vec_size": model.attn_size
         },
         "state_dict": model.state_dict()
     }, path)
