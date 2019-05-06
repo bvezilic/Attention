@@ -8,10 +8,9 @@ def save_model(path: str, model: Seq2Seq):
         "model_params": {
             "enc_vocab_size": model.enc_vocab_size,
             "dec_vocab_size": model.dec_vocab_size,
-            "enc_hidden_size": model.enc_hidden_size,
-            "dec_hidden_size": model.dec_hidden_size,
+            "hidden_size": model.hidden_size,
+            "embedding_dim": model.embedding_dim,
             "output_size": model.output_size,
-            "embedding_size": model.embedding_size,
             "attn_vec_size": model.attn_size
         },
         "state_dict": model.state_dict()

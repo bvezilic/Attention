@@ -21,7 +21,12 @@ class Trainer:
         self.device = device
         self.batch_size = batch_size
 
+        # Initialize train data loader
         self.data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size, collate_fn=dataset.collate_fn)
+
+        # Set model to given device
+        self.model.to(device)
+        self.model.device = device
 
     def train(self, epochs):
         losses = []
@@ -72,12 +77,10 @@ def train():
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,
-                    enc_hidden_size=model_params["enc_hidden_size"],
-                    dec_hidden_size=model_params["dec_hidden_size"],
+                    hidden_size=model_params["hidden_size"],
+                    embedding_dim=model_params["embedding_dim"],
                     output_size=fra_vocab.size,
-                    embedding_size=model_params["embedding_size"],
                     attn_vec_size=model_params["attn_vec_size"])
-    model.to(args.device)
 
     # Initialize the optimizer
     optimizer = Adam(model.parameters(), lr=args.lr)

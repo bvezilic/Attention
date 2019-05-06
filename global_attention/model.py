@@ -17,11 +17,14 @@ class Encoder(nn.Module):
                           batch_first=True)
 
     def forward(self, inputs):
-        # inputs [B, T]
-        emb = self.embedding(inputs)
-        # emb [B, T, emb_dim]
-        outputs, h_n = self.gru(emb)
-        # outputs [B, T, h_t], h_n [B, h_t]
+        """
+        :param inputs: [batch_size, time_step]
+        :return: outputs: [batch_size, time_step, hidden_size]
+                 h_n: [num_layers=1, batch_size, hidden_size]
+        """
+        emb = self.embedding(inputs)  # emb[B, T, emb_dim]
+        outputs, h_n = self.gru(emb)  # outputs [B, T, h_size], h_n[num_layers=1, B, h_size]
+
         return outputs, h_n
 
 
@@ -29,125 +32,144 @@ class AttentionLayer(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, ht, encoder_outputs):
+    def forward(self, ht, encoder_outputs, mask_ids):
         """
-        :param ht: shape [num_layers=1, batch_size, dec_hidden_size]
-        :param encoder_outputs: [batch_size, time_steps, enc_hidden_size]
+        :param ht: shape [num_layers=1, batch_size, hidden_size]
+        :param encoder_outputs: [batch_size, time_step, hidden_size]
+        :param mask_ids: [batch_size, time_step]
+        :return: context_vec: [batch_size, hidden_size]
+                 attn_weights: [batch_size, time_step]
         """
         # Compute the score between output hidden_state of the decoder and each output hidden state of the encoder
-        # Before bmm encoder_outputs[batch_size, time-steps, enc_hidden_size] x ht_[batch_size, dec_hidden_size, num_layers=1]
-        score = torch.bmm(encoder_outputs, ht.permute(1, 2, 0))  # Dot product is better for global attention
+        # Before bmm encoder_outputs[B, T, h_size] x ht_[B, h_size, num_layers=1]
+        # Dot product is better for global attention
+        score = torch.bmm(encoder_outputs, ht.permute(1, 2, 0))  # score[B, T, 1]
+
+        # Assign inf negative score to padded elements
+        mask_ids = mask_ids.unsqueeze(2)  # [B, T] -> [B, T, 1]
+        n_inf = float("-inf")
+        score.masked_fill_(~mask_ids, n_inf)
 
         # Apply softmax function on scores
-        # score[batch_size, time-steps, 1]
-        attn_weights = F.softmax(score, dim=1)
+        attn_weights = F.softmax(score, dim=1)  # attn_weights[B, T, 1]
 
         # Compute weighted sum (in paper it's average)
-        # attn_weights[batch_size, time_steps, 1] x encoder_outputs[batch_size, time_steps, enc_hidden_state]
-        context_vec = torch.sum(attn_weights * encoder_outputs, dim=1)
+        # attn_weights[B, T, 1] * encoder_outputs[B, T, h_size]
+        context_vec = torch.sum(attn_weights * encoder_outputs, dim=1)  # context_vec[B, h_size]
+        attn_weights = attn_weights.squeeze(2)  # [B, T, 1] -> [B, T]
 
-        # attn_weights[batch_size, time_steps, 1]
-        attn_weights = attn_weights.squeeze(2)
-
-        # context_vec[batch_size, enc_hidden_state]
-        # attn_weights[batch_size, time_steps]
         return context_vec, attn_weights
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_embeddings, embedding_size, hidden_size, attn_vec_size):
+    def __init__(self, num_embeddings, embedding_dim, hidden_size, attn_vec_size):
         super().__init__()
         self.num_embeddings = num_embeddings
-        self.embedding_size = embedding_size
+        self.embedding_size = embedding_dim
         self.hidden_size = hidden_size
         self.attn_vec_size = attn_vec_size
 
         self.embedding = nn.Embedding(num_embeddings=num_embeddings,
-                                      embedding_dim=embedding_size,
+                                      embedding_dim=embedding_dim,
                                       padding_idx=0)
 
-        self.gru = nn.GRU(input_size=embedding_size + attn_vec_size,
+        self.gru = nn.GRU(input_size=embedding_dim + attn_vec_size,
                           hidden_size=hidden_size,
                           batch_first=True)
 
-        self.attn = AttentionLayer()
+        self.attn_layer = AttentionLayer()
 
-        self.fc_attnvec = nn.Sequential(
+        self.fc_attn_vec = nn.Sequential(
             nn.Linear(self.hidden_size * 2, self.attn_vec_size),
             nn.Tanh()
         )
 
         self.fc_classifier = nn.Linear(self.attn_vec_size, num_embeddings)
 
-    def forward(self, word_ids, attn_vec, enc_outputs, prev_hidden):
+    def forward(self, word_ids, attn_vec, enc_outputs, prev_hidden, mask_ids):
         """
-        :param word_ids: shape (batch_size,)
-        :param attn_vec: shape (batch_size, attn_size)
-        :param enc_outputs: (time_step, batch_size, enc_hidden_size)
-        :param prev_hidden: (batch_size, dec_hidden_size)
-        :return:
+        :param word_ids: [batch_size]
+        :param attn_vec: [batch_size, attn_vec_size]
+        :param enc_outputs: [batch_size, time_step, hidden_size]
+        :param prev_hidden: [num_layers=1, batch_size, hidden_size]
+        :param mask_ids: [batch_size, time_step]
         """
-        # Convert index `x` into embedding
-        x_emb = self.embedding(word_ids)  # x_emb[batch_size, embedding_size]
+        # Convert words into embeddings
+        words_emb = self.embedding(word_ids)  # words_emb[B, emb_dim]
 
         # Concatenate embedding and previous attention vector (ht~)
-        word_ids = torch.cat((x_emb, attn_vec), dim=1)  # x[batch_size, embedding_size + attn_size]
+        x = torch.cat((words_emb, attn_vec), dim=1)  # x[B, emb_dim + attn_size]
 
         # Obtain hidden state ht
-        _, ht = self.gru(word_ids.unsqueeze(0), prev_hidden)  # ht[time_step=1, batch_size, dec_hidden_size]
+        x = x.unsqueeze(1)  # [B, T=1, emb_dim + attn_size]
+        _, ht = self.gru(x, prev_hidden)  # ht[num_layers=1, B, h_size]
 
-        # Pass ht to attention layer
-        context_vec, attn_weights = self.attn(ht, enc_outputs)  # context_vec[batch_size, enc_hidden_state]
-                                                                # attn_weights[batch_size, time_steps, 1]
+        # Obtain context vector and attention weights
+        context_vec, attn_weights = self.attn_layer(ht, enc_outputs, mask_ids)  # context_vec[B, h_size]
+                                                                                # attn_weights[B, T, 1]
         # Compute attention vector (ht~)
-        merged = torch.cat((context_vec, ht.squeeze(0)), dim=1)  # Remove the num_layers dimension
-        attn_vec = self.fc_attnvec(merged)
+        ht = ht.squeeze(0)  # [num_layers=1, B, h_size] -> [B, h_size]
+        merged = torch.cat((context_vec, ht), dim=1)  # merged[B, 2 * h_size]
+        attn_vec = self.fc_attn_vec(merged)  # attn_vec[B, attn_size]
 
-        # Obtain predictions
-        preds = self.fc_classifier(attn_vec)
+        # Obtain predictions (no activation function)
+        logits = self.fc_classifier(attn_vec)  # logits[B, vocab_size]
 
-        return preds, attn_vec, attn_weights, ht
+        return logits, attn_vec, attn_weights, ht
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, enc_vocab_size, dec_vocab_size, enc_hidden_size, dec_hidden_size, output_size, embedding_size,
-                 attn_vec_size):
+    def __init__(self,
+                 enc_vocab_size,
+                 dec_vocab_size,
+                 hidden_size,
+                 embedding_dim,
+                 output_size,
+                 attn_vec_size,
+                 device="cpu"):
         super().__init__()
-        self.enc_vocab_size = enc_hidden_size
+        self.enc_vocab_size = enc_vocab_size
         self.dec_vocab_size = dec_vocab_size
-        self.enc_hidden_size = enc_hidden_size
-        self.dec_hidden_size = dec_hidden_size
+        self.hidden_size = hidden_size
+        self.embedding_dim = embedding_dim
         self.output_size = output_size
         self.attn_vec_size = attn_vec_size
         self.max_sequence = 512
+        self.device = device
 
         self.encoder = Encoder(num_embeddings=enc_vocab_size,
-                               embedding_dim=embedding_size,
-                               hidden_size=enc_hidden_size)
+                               embedding_dim=embedding_dim,
+                               hidden_size=hidden_size)
         self.decoder = Decoder(num_embeddings=dec_vocab_size,
-                               embedding_size=embedding_size,
-                               hidden_size=dec_hidden_size,
+                               embedding_dim=embedding_dim,
+                               hidden_size=hidden_size,
                                attn_vec_size=attn_vec_size)
 
     def forward(self, inputs, targets=None):
+        """
+        :param inputs: [batch_size, time_step]
+        :param targets: (Optional) [batch_size, time_step]
+        """
         batch_size = inputs.size(0)
-        mask_inputs = inputs != 0
+        mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
 
         # Obtain outputs from encoder
         enc_outputs, enc_ht = self.encoder(inputs)
 
-        current_ids = torch.zeros(batch_size, dtype=torch.long, device="cuda")  # Start index <PAD>
-        current_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device="cuda")  # Start attn vector
+        # Initialize tensors for 1st time-step
+        current_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
+        current_attn_vec = torch.zeros(batch_size, self.attn_vec_size, dtype=torch.float, device=self.device)  # Start attn vector
         current_ht = enc_ht  # Take encoder hidden state for initial state for decoder
 
         attn_weights_list = []
         predictions = []
         num_steps = 0
-        while current_ids != 1 and num_steps < self.max_sequence:
+        while num_steps < self.max_sequence:
             preds, attn_vec, attn_weights, ht = self.decoder(word_ids=current_ids,
                                                              attn_vec=current_attn_vec,
                                                              enc_outputs=enc_outputs,
-                                                             prev_hidden=current_ht)
+                                                             prev_hidden=current_ht,
+                                                             mask_ids=mask_ids)
             attn_weights_list.append(attn_weights)
             predictions.append(preds)
 
