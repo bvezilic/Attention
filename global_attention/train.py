@@ -40,8 +40,12 @@ class Trainer:
 
                 inp = inp.to(self.device)  # [B, T]
                 tar = tar.to(self.device)  # [B, T]
+                mask_ids = (inp != 0)  # Create mask where word_idx=1 and pad=0
 
-                logits, attn_weights = self.model(inp)
+                logits, attn_weights = self.model(inp, mask_ids)
+
+                logits = logits.transpose(1, 0)
+                attn_weights = attn_weights.transpose(1, 0)
                 # logits[T, B=1, dec_vocab_size]
                 # attn_weights[T, B=1, enc_outputs-time_steps]
 
@@ -73,7 +77,7 @@ def train():
     dataset = NMTDataset(args.data,
                          src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
                          tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
-    print(dataset)
+
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,
