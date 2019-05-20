@@ -93,6 +93,10 @@ class Decoder(nn.Module):
         :param enc_outputs: [batch_size, time_step, hidden_size]
         :param prev_hidden: [num_layers=1, batch_size, hidden_size]
         :param mask_ids: [batch_size, time_step]
+        :return: { logits: [batch_size, vocab_size]
+                   attn_vec: [batch_size, attn_size]
+                   attn_weights: [batch_size, time_step, 1]
+                   hidden_state: [num_layers=1, batch_size, hidden_size] }
         """
         # Convert words into embeddings
         words_emb = self.embedding(word_ids)  # words_emb[B, emb_dim]
@@ -115,7 +119,12 @@ class Decoder(nn.Module):
         # Obtain predictions (no activation function)
         logits = self.fc_classifier(attn_vec)  # logits[B, vocab_size]
 
-        return logits, attn_vec, attn_weights, ht
+        return {
+            "logits": logits,
+            "attn_vec": attn_vec,
+            "attn_weights": attn_weights,
+            "hidden_state": ht
+        }
 
 
 class Seq2Seq(nn.Module):
@@ -134,7 +143,6 @@ class Seq2Seq(nn.Module):
         self.embedding_dim = embedding_dim
         self.output_size = output_size
         self.attn_vec_size = attn_vec_size
-        self.num_steps = 512
         self.device = device
 
         self.encoder = Encoder(num_embeddings=enc_vocab_size,
@@ -145,46 +153,56 @@ class Seq2Seq(nn.Module):
                                hidden_size=hidden_size,
                                attn_vec_size=attn_vec_size)
 
-    def forward(self, inputs, mask_ids, targets=None):
+    def forward(self, inputs, mask_ids, targets):
         """
         :param inputs: [batch_size, time_step]
-
-        :param targets: (Optional) [batch_size, time_step]
+        :param mask_ids: [batch_size, time_step]
+        :param targets: [batch_size, time_step]
         """
         batch_size = inputs.size(0)
 
         # Obtain outputs from encoder
         enc_outputs, enc_ht = self.encoder(inputs)
 
-        # Initialize tensors for 1st time-step
-        inpt_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
-        inpt_attn_vec = torch.zeros(batch_size, self.attn_vec_size, dtype=torch.float, device=self.device)  # Start attn vector
+        # Initialize inputs for 1-time step od decoder
+        inpt_ids, inpt_attn_vec = self._init_first_input(batch_size=batch_size)
         inpt_ht = enc_ht  # Take encoder hidden state for initial state for decoder
 
-        attn_weights_list = []
-        predictions = []
-        num_step = 0
-        while num_step < self.num_steps:
-            preds, attn_vec, attn_weights, ht = self.decoder(word_ids=inpt_ids,
-                                                             attn_vec=inpt_attn_vec,
-                                                             enc_outputs=enc_outputs,
-                                                             prev_hidden=inpt_ht,
-                                                             mask_ids=mask_ids)
-            attn_weights_list.append(attn_weights)
-            predictions.append(preds)
+        # Initialize output for seq2seq
+        output = {
+            "attn_weights": [],
+            "logits": []
+        }
 
+        # Iterate over time-steps
+        for i in range(targets.size(1)):
+            dec_output = self.decoder(word_ids=inpt_ids,
+                                      attn_vec=inpt_attn_vec,
+                                      enc_outputs=enc_outputs,
+                                      prev_hidden=inpt_ht,
+                                      mask_ids=mask_ids)
+
+            # Store decoder outputs (attention weights and raw predictions)
+            output["attn_weights"].append(dec_output["attn_weights"])
+            output["logits"].append(dec_output["logits"])
+
+            # Update inputs for next time step
             # Use correct word for each next time-step (teacher)
-            if targets:
-                inpt_ids = targets[num_step]
-            else:
-                inpt_ids = torch.argmax(preds, dim=1)
+            inpt_ids = targets[:, i]
+            inpt_attn_vec = dec_output["attn_vec"]
+            inpt_ht = dec_output["hidden_state"]
 
-            inpt_attn_vec = attn_vec
-            inpt_ht = ht
+        # Modify output
+        output["logits"] = torch.stack(output["logits"])  # logits[T, B, dec_vocab_size]
+        output["logits"] = output["logits"].transpose(1, 0)  # logits[B, T, dec_vocab_size]
+        output["attn_weights"] = torch.stack(output["attn_weights"])  # attn_weights[T, B, enc_outputs]
+        output["attn_weights"] = output["attn_weights"].transpose(1, 0)
+        output["predictions"] = torch.argmax(output["logits"], dim=2)
 
-            num_step += 1
+        return output
 
-        predictions = torch.stack(predictions)  # predictions[time_step, batch_size, dec_vocab_size]
-        attn_weights_list = torch.stack(attn_weights_list)  # attn_weights_list[time_step, batch_size, enc_outputs]
+    def _init_first_input(self, batch_size):
+        zero_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
+        zero_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device=self.device)
 
-        return predictions, attn_weights_list
+        return zero_ids, zero_attn_vec

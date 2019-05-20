@@ -32,3 +32,14 @@ class ToTensor:
 
     def __call__(self, seq):
         return torch.tensor(seq, dtype=self.dtype)
+
+
+class AddEOSToken:
+    def __init__(self, token):
+        self.token = token
+
+    def __repr__(self):
+        return "{}(token={})".format(self.__class__.__name__, self.token)
+
+    def __call__(self, seq):
+        return seq + [self.token.name]

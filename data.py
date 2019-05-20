@@ -32,20 +32,21 @@ class NMTDataset(Dataset):
         return src, tar
 
     @staticmethod
-    def collate_fn(batch):
+    def collate_fn(batch, padding_value=0):
         """
         Pads the input and target tensor
-        :param batch:
-        :return:
+        :param batch: list of tuples [(input1, target1), (input2, target2), ...]
+        :param padding_value: int (default=0)
+        :return: inputs: Tensor
+                 targets: Tensor
         """
-        inp, tar = zip(*batch)
+        inputs, targets = zip(*batch)
 
         # padding
-        padding_value = 0
-        inp = pad_sequence(inp, batch_first=True, padding_value=padding_value)
-        tar = pad_sequence(tar, batch_first=True, padding_value=padding_value)
+        inputs = pad_sequence(inputs, batch_first=True, padding_value=padding_value)
+        targets = pad_sequence(targets, batch_first=True, padding_value=padding_value)
 
-        return inp, tar
+        return inputs, targets
 
 
 if __name__ == "__main__":

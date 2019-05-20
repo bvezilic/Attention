@@ -6,7 +6,7 @@ from torchvision.transforms import Compose
 
 from data import NMTDataset
 from tokenizer import Tokenizer
-from transform import ToTokens, ToIndices, ToTensor
+from transform import ToTokens, ToIndices, ToTensor, AddEOSToken
 from vocab import Vocabulary
 from model import Seq2Seq
 from utils import read_params
@@ -22,7 +22,8 @@ class Trainer:
         self.batch_size = batch_size
 
         # Initialize train data loader
-        self.data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size, collate_fn=dataset.collate_fn)
+        self.data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size,
+                                      collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
 
         # Set model to given device
         self.model.to(device)
@@ -35,33 +36,27 @@ class Trainer:
             print("Epoch: {}/{}".format(epoch+1, epochs))
 
             running_loss = 0
-            for i, (inp, tar) in enumerate(self.data_loader):
+            for i, (inputs, targets) in enumerate(self.data_loader):
                 self.optimizer.zero_grad()
 
-                inp = inp.to(self.device)  # [B, T]
-                tar = tar.to(self.device)  # [B, T]
-                mask_ids = (inp != 0)  # Create mask where word_idx=1 and pad=0
+                inputs = inputs.to(self.device)  # [B, T]
+                targets = targets.to(self.device)  # [B, T]
+                mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
 
-                logits, attn_weights = self.model(inp, mask_ids)
-
-                logits = logits.transpose(1, 0)
-                attn_weights = attn_weights.transpose(1, 0)
-                # logits[T, B=1, dec_vocab_size]
-                # attn_weights[T, B=1, enc_outputs-time_steps]
-
-                if logits.size(0) >= tar.size(1):
-                    preds = logits[:tar.size(1)]
-                else:
-                    preds = torch.zeros(tar.size(1), preds.size()[1:])
-                    preds[:logits.size(0)] = logits
-
-                loss = self.criterion(preds.reshape(-1, preds.size(2)), tar.reshape(-1))
-
+                # Obtain predictions
+                output = self.model(inputs=inputs,
+                                    mask_ids=mask_ids,
+                                    targets=targets)
+                # Compute cross-entropy loss
+                loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
+                                      target=targets.reshape(-1))
+                # Compute gradients
                 loss.backward()
+                # Update weights
                 self.optimizer.step()
 
                 running_loss += loss
-                print("Batch loss {}/{}: {}".format(i+1, len(self.data_loader), loss))
+                print("Batch loss {}/{}: {:.4f}".format(i+1, len(self.data_loader), loss))
 
             print("Epoch loss: {}".format(running_loss/len(self.data_loader)))
 
@@ -75,8 +70,13 @@ def train():
 
     # Initialize the dataset
     dataset = NMTDataset(args.data,
-                         src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
-                         tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
+                         src_transform=Compose([ToTokens(Tokenizer()),
+                                                ToIndices(eng_vocab),
+                                                ToTensor(torch.long)]),
+                         tar_transform=Compose([ToTokens(Tokenizer()),
+                                                AddEOSToken(fra_vocab.end_token),
+                                                ToIndices(fra_vocab),
+                                                ToTensor(torch.long)]))
 
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
@@ -112,7 +112,7 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
-    parser.add_argument("--batch_size", type=int, default=32,
+    parser.add_argument("--batch_size", type=int, default=16,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")
