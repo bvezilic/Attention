@@ -5,20 +5,22 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 class NMTDataset(Dataset):
-    def __init__(self, filepath, src_transform=None, tar_transform=None):
+    def __init__(self, filepath, src_language="English", tar_language="French", src_transform=None, tar_transform=None):
         self.filepath = filepath
+        self.src_lang = src_language
+        self.tar_lang = tar_language
         self.src_transform = src_transform
         self.tar_transform = tar_transform
 
         # Load the data as pd.DataFrame
-        self.train_data = pd.read_csv(self.filepath, sep="\t", names=["English", "French"])
+        self.train_data = pd.read_csv(self.filepath, sep="\t", names=[src_language, tar_language])
 
     def __len__(self):
         return len(self.train_data)
 
     def __repr__(self):
         return "{}(filepath={}, src_transform={}, tar_transform={})".format(
-            self.__class__.__name__, self.filepath, self.src_transform, self.tar_transform)
+            self.name, self.filepath, self.src_transform, self.tar_transform)
 
     def __getitem__(self, i):
         src, tar = self.train_data.iloc[i]
@@ -31,12 +33,14 @@ class NMTDataset(Dataset):
 
         return src, tar
 
+    @property
+    def name(self):
+        return self.__class__.__name__
+
     @staticmethod
     def collate_fn(batch):
         """
-        Pads the input and target tensor
-        :param batch:
-        :return:
+        Pads the input and target tensor to `padding_value=0`
         """
         inp, tar = zip(*batch)
 

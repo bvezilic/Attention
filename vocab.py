@@ -27,7 +27,11 @@ class Vocabulary:
 
     def __repr__(self):
         return "{}(token2idx_dict={}, idx2token_dict={})".format(
-            self.__class__.__name__, len(self.token2idx_dict), len(self.idx2token_dict))
+            self.name, len(self.token2idx_dict), len(self.idx2token_dict))
+
+    @property
+    def name(self):
+        return self.__class__.__name__
 
     @property
     def size(self):

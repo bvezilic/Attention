@@ -7,7 +7,11 @@ class Tokenizer:
         self.do_lower = do_lower
 
     def __repr__(self):
-        return "{}(end_token={}, do_lower={})".format(self.__class__.__name__, self.end_token, self.do_lower)
+        return "{}(end_token={}, do_lower={})".format(self.name, self.end_token, self.do_lower)
+
+    @property
+    def name(self):
+        return self.__class__.__name__
 
     def tokenize(self, text):
         if self.do_lower:
