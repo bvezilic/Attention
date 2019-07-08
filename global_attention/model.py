@@ -153,7 +153,7 @@ class Seq2Seq(nn.Module):
                                hidden_size=hidden_size,
                                attn_vec_size=attn_vec_size)
 
-    def forward(self, inputs, mask_ids, targets):
+    def forward(self, inputs, mask_ids, targets=None):
         """
         :param inputs: [batch_size, time_step]
         :param mask_ids: [batch_size, time_step]
@@ -194,9 +194,9 @@ class Seq2Seq(nn.Module):
 
         # Modify output
         output["logits"] = torch.stack(output["logits"])  # logits[T, B, dec_vocab_size]
-        output["logits"] = output["logits"].transpose(1, 0)  # logits[B, T, dec_vocab_size]
+        output["logits"] = output["logits"].transpose(1, 0)  # logits[T, B, *] -> [B, T, *]
         output["attn_weights"] = torch.stack(output["attn_weights"])  # attn_weights[T, B, enc_outputs]
-        output["attn_weights"] = output["attn_weights"].transpose(1, 0)
+        output["attn_weights"] = output["attn_weights"].transpose(1, 0)  # attn_weights[T, B, *] -> [B, T, *]
         output["predictions"] = torch.argmax(output["logits"], dim=2)
 
         return output
