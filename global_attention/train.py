@@ -1,19 +1,31 @@
+import logging
+from typing import List, Text, Callable
+
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
 
 from data import NMTDataset
+from model import Seq2Seq
 from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor
-from vocab import Vocabulary
-from model import Seq2Seq
 from utils import read_params
+from vocab import Vocabulary
+
+logger = logging.getLogger(__file__)
 
 
 class Trainer:
-    def __init__(self, dataset, model, optimizer, criterion, batch_size, device):
+    def __init__(self,
+                 dataset: NMTDataset,
+                 model: Seq2Seq,
+                 optimizer: Optimizer,
+                 criterion: Callable,
+                 batch_size: int,
+                 device: Text):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
@@ -22,13 +34,35 @@ class Trainer:
         self.batch_size = batch_size
 
         # Initialize train data loader
-        self.data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size, collate_fn=dataset.collate_fn)
+        self.data_loader = DataLoader(dataset,
+                                      shuffle=True,
+                                      batch_size=batch_size,
+                                      collate_fn=dataset.collate_fn)
 
-        # Set model to given device
+        # Set model to device
         self.model.to(device)
         self.model.device = device
 
-    def train(self, epochs):
+    def __repr__(self):
+        return f"{self.name}:\n" \
+            f"dataset={self.dataset}\n" \
+            f"model={self.model}\n" \
+            f"optimizer={self.optimizer}\n" \
+            f"criterion={self.criterion}\n" \
+            f"device={self.device}\n" \
+            f"batch_size={self.batch_size}"
+
+    @property
+    def name(self) -> Text:
+        return self.__class__.__name__
+
+    def train(self, epochs: int) -> List[float]:
+        """
+        Runs training for number of `epochs`.
+
+        Returns:
+            losses: List of losses for each epoch
+        """
         losses = []
 
         for epoch in range(epochs):
@@ -73,17 +107,20 @@ def train():
     eng_vocab = Vocabulary.from_file(args.src_vocab)
     fra_vocab = Vocabulary.from_file(args.dst_vocab)
 
-    # Initialize the dataset
+    # Initialize the data set
     dataset = NMTDataset(args.data,
-                         src_transform=Compose([ToTokens(Tokenizer()), ToIndices(eng_vocab), ToTensor(torch.long)]),
-                         tar_transform=Compose([ToTokens(Tokenizer()), ToIndices(fra_vocab), ToTensor(torch.long)]))
+                         src_transform=Compose([ToTokens(Tokenizer()),
+                                                ToIndices(eng_vocab),
+                                                ToTensor(torch.long)]),
+                         tar_transform=Compose([ToTokens(Tokenizer()),
+                                                ToIndices(fra_vocab),
+                                                ToTensor(torch.long)]))
 
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
                     dec_vocab_size=fra_vocab.size,
                     hidden_size=model_params["hidden_size"],
                     embedding_dim=model_params["embedding_dim"],
-                    output_size=fra_vocab.size,
                     attn_vec_size=model_params["attn_vec_size"])
 
     # Initialize the optimizer
@@ -120,12 +157,22 @@ if __name__ == "__main__":
                         help="Path to json config file of model parameters")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],
                         help="Run train on cuda/cpu")
+    parser.add_argument("--debug", action="store_true",
+                        help="Set logger to debugging level")
 
     args = parser.parse_args()
+
+    # Read model params from file
     model_params = read_params(args.model_params)
+
+    # Set debugging level if provided
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
 
     # Validate if cuda is available
     if args.device == "cuda" and torch.cuda.is_available() is False:
-        raise ValueError("Set to use cuda, but cuda is not available!")
+        logger.warning("Set to use cuda, but cuda is not available!")
+        logger.warning("Setting device to use CPU instead of GPU!")
+        args.device = "cpu"
 
     train()

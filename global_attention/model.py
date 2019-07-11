@@ -124,15 +124,13 @@ class Seq2Seq(nn.Module):
                  dec_vocab_size,
                  hidden_size,
                  embedding_dim,
-                 output_size,
                  attn_vec_size,
                  device="cpu"):
         super().__init__()
-        self.enc_vocab_size = enc_vocab_size
-        self.dec_vocab_size = dec_vocab_size
+        self.enc_vocab_size = enc_vocab_size  # Output size of encoder
+        self.dec_vocab_size = dec_vocab_size  # Output size of decoder
         self.hidden_size = hidden_size
         self.embedding_dim = embedding_dim
-        self.output_size = output_size
         self.attn_vec_size = attn_vec_size
         self.num_steps = 512
         self.device = device
@@ -147,9 +145,17 @@ class Seq2Seq(nn.Module):
 
     def forward(self, inputs, mask_ids, targets=None):
         """
-        :param inputs: [batch_size, time_step]
+        Args:
+            inputs: Word indices from source vocabulary
+                shape=[batch_size, enc_max_time_steps]
+            mask_ids: Auto-generated masks based on inputs
+                shape=[batch_size, enc_max_time_steps]
+            targets: (Optional) Word indices from target vocabulary
+                shape=[batch_size, dec_max_time_steps]
+        Returns:
+            predictions:
 
-        :param targets: (Optional) [batch_size, time_step]
+            attn_weight_list
         """
         batch_size = inputs.size(0)
 
