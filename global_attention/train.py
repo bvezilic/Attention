@@ -37,7 +37,7 @@ class Trainer:
         self.data_loader = DataLoader(dataset,
                                       shuffle=True,
                                       batch_size=batch_size,
-                                      collate_fn=dataset.collate_fn)
+                                      collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
 
         # Set model to device
         self.model.to(device)
@@ -66,38 +66,33 @@ class Trainer:
         losses = []
 
         for epoch in range(epochs):
-            print("Epoch: {}/{}".format(epoch+1, epochs))
+            logger.info("Epoch: {}/{}".format(epoch+1, epochs))
 
             running_loss = 0
-            for i, (inp, tar) in enumerate(self.data_loader):
+            for i, (inputs, targets) in enumerate(self.data_loader):
                 self.optimizer.zero_grad()
 
-                inp = inp.to(self.device)  # [B, T]
-                tar = tar.to(self.device)  # [B, T]
-                mask_ids = (inp != 0)  # Create mask where word_idx=1 and pad=0
+                inputs = inputs.to(self.device)  # [B, T]
+                targets = targets.to(self.device)  # [B, T]
+                mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
 
-                logits, attn_weights = self.model(inp, mask_ids)
-
-                logits = logits.transpose(1, 0)
-                attn_weights = attn_weights.transpose(1, 0)
-                # logits[T, B=1, dec_vocab_size]
-                # attn_weights[T, B=1, enc_outputs-time_steps]
-
-                if logits.size(0) >= tar.size(1):
-                    preds = logits[:tar.size(1)]
-                else:
-                    preds = torch.zeros(tar.size(1), preds.size()[1:])
-                    preds[:logits.size(0)] = logits
-
-                loss = self.criterion(preds.reshape(-1, preds.size(2)), tar.reshape(-1))
-
+                # Obtain predictions
+                output = self.model(inputs=inputs,
+                                    mask_ids=mask_ids,
+                                    targets=targets)
+                # Compute cross-entropy loss
+                loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
+                                      target=targets.reshape(-1))
+                # Compute gradients
                 loss.backward()
+
+                # Update weights
                 self.optimizer.step()
 
                 running_loss += loss
-                print("Batch loss {}/{}: {}".format(i+1, len(self.data_loader), loss))
+                logger.info("Batch loss {}/{}: {:.4f}".format(i+1, len(self.data_loader), loss))
 
-            print("Epoch loss: {}".format(running_loss/len(self.data_loader)))
+            logger.info("Epoch loss: {}".format(running_loss/len(self.data_loader)))
 
         return losses
 
@@ -109,12 +104,12 @@ def train():
 
     # Initialize the data set
     dataset = NMTDataset(args.data,
-                         src_transform=Compose([ToTokens(Tokenizer()),
-                                                ToIndices(eng_vocab),
-                                                ToTensor(torch.long)]),
-                         tar_transform=Compose([ToTokens(Tokenizer()),
-                                                ToIndices(fra_vocab),
-                                                ToTensor(torch.long)]))
+                         src_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=eng_vocab.end_token)),
+                                                ToIndices(vocabulary=eng_vocab),
+                                                ToTensor(dtype=torch.long)]),
+                         tar_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=fra_vocab.end_token)),
+                                                ToIndices(vocabulary=fra_vocab),
+                                                ToTensor(dtype=torch.long)]))
 
     # Initialize the model
     model = Seq2Seq(enc_vocab_size=eng_vocab.size,
