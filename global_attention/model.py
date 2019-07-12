@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_embeddings, hidden_size, embedding_dim):
+    def __init__(self, num_embeddings: int, hidden_size: int, embedding_dim: int):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.hidden_size = hidden_size
@@ -18,13 +18,19 @@ class Encoder(nn.Module):
 
     def forward(self, inputs):
         """
-        :param inputs: [batch_size, time_step]
-        :return: outputs: [batch_size, time_step, hidden_size]
-                 h_n: [num_layers=1, batch_size, hidden_size]
-        """
-        emb = self.embedding(inputs)  # emb[B, T, emb_dim]
-        outputs, h_n = self.gru(emb)  # outputs [B, T, h_size], h_n[num_layers=1, B, h_size]
+        Args:
+            inputs: Words indices from source (language) vocabulary
+                shape=[batch_size, time_steps]
 
+        Returns:
+            outputs: Output (hidden states) from RNN at all time steps
+                shape=[batch_size, time_steps, hidden_size]
+            h_n: Last hidden state at `max_time_steps`
+                shape=[num_layers=1, batch_size, hidden_size]
+        """
+        emb = self.embedding(inputs)        # emb[B, T, emb_dim]
+        outputs, h_n = self.gru(emb)        # outputs[B, T, h_size]
+                                            # h_n[num_layers=1, B, h_size]
         return outputs, h_n
 
 
@@ -34,29 +40,36 @@ class AttentionLayer(nn.Module):
 
     def forward(self, ht, encoder_outputs, mask_ids):
         """
-        :param ht: shape [num_layers=1, batch_size, hidden_size]
-        :param encoder_outputs: [batch_size, time_step, hidden_size]
-        :param mask_ids: [batch_size, time_step]
-        :return: context_vec: [batch_size, hidden_size]
-                 attn_weights: [batch_size, time_step]
+        Args:
+            ht: Hidden state of decoder RNN
+                shape=[num_layers=1, batch_size, hidden_size]
+            encoder_outputs: Output (hidden states) from encoder RNN at all time steps
+                shape=[batch_size, time_step, hidden_size]
+            mask_ids: Boolean tensor for masking padded elements
+                shape=[batch_size, time_step]
+
+        Returns:
+            contex_vec: Sum of attention weights and encoder outputs
+                shape=[batch_size, hidden_size]
+            attn_weights: Softmax score between decoder hidden state and encoder outputs
+                shape=[batch_size, time_step]
         """
-        # Compute the score between output hidden_state of the decoder and each output hidden state of the encoder
-        # Before bmm encoder_outputs[B, T, h_size] x ht_[B, h_size, num_layers=1]
+        # Before bmm encoder_outputs[B, T, h_size] @ ht_[B, h_size, num_layers=1]
         # Dot product is better for global attention
-        score = torch.bmm(encoder_outputs, ht.permute(1, 2, 0))  # score[B, T, 1]
+        score = torch.bmm(encoder_outputs, ht.permute(1, 2, 0))         # score[B, T, 1]
 
         # Assign inf negative score to padded elements
-        mask_ids = mask_ids.unsqueeze(2)  # [B, T] -> [B, T, 1]
+        mask_ids = mask_ids.unsqueeze(2)                                # mask_ids[B, T] -> [B, T, 1]
         n_inf = float("-inf")
-        score.masked_fill_(~mask_ids, n_inf)
+        score.masked_fill_(~mask_ids, n_inf)                            # score[B, T, 1]
 
         # Apply softmax function on scores
-        attn_weights = F.softmax(score, dim=1)  # attn_weights[B, T, 1]
+        attn_weights = F.softmax(score, dim=1)                          # attn_weights[B, T, 1]
 
         # Compute weighted sum (in paper it's average)
         # attn_weights[B, T, 1] * encoder_outputs[B, T, h_size]
         context_vec = torch.sum(attn_weights * encoder_outputs, dim=1)  # context_vec[B, h_size]
-        attn_weights = attn_weights.squeeze(2)  # [B, T, 1] -> [B, T]
+        attn_weights = attn_weights.squeeze(2)                          # attn_weights[B, T, 1] -> [B, T]
 
         return context_vec, attn_weights
 
@@ -88,36 +101,51 @@ class Decoder(nn.Module):
 
     def forward(self, word_ids, attn_vec, enc_outputs, prev_hidden, mask_ids):
         """
-        :param word_ids: [batch_size]
-        :param attn_vec: [batch_size, attn_vec_size]
-        :param enc_outputs: [batch_size, time_step, hidden_size]
-        :param prev_hidden: [num_layers=1, batch_size, hidden_size]
-        :param mask_ids: [batch_size, time_step]
-        :return: { logits: [batch_size, vocab_size]
-                   attn_vec: [batch_size, attn_size]
-                   attn_weights: [batch_size, time_step, 1]
-                   hidden_state: [num_layers=1, batch_size, hidden_size] }
+        Args:
+            word_ids: Words indices from target (language) vocabulary
+                shape=[batch_size]
+            attn_vec: Attention vector from previous time-step
+                shape=[batch_size, attn_vec_size]
+            enc_outputs: Output of encoder RNN
+                shape=[batch_size, time_steps, hidden_size]
+            prev_hidden: Previous hidden state of the decoder RNN
+                shape=[num_layers=1, batch_size, hidden_size]
+            mask_ids: Boolean tensor for masking padded elements
+                shape=[batch_size, time_step]
+
+        Returns:
+            output:
+                logits: Classification output from decoder at specific time-step
+                    shape=[batch_size, vocab_size]
+                attn_vec: Computed attention vector from context vector and hidden state of decoder RNN
+                    shape=[batch_size, attn_size]
+                attn_weights: Attention weights to encoder outputs
+                    shape=[batch_size, time_steps, 1]
+                hidden_state: Output hidden state of decoder RNN
+                    shape=[num_layers=1, batch_size, hidden_size]
         """
         # Convert words into embeddings
-        words_emb = self.embedding(word_ids)  # words_emb[B, emb_dim]
+        words_emb = self.embedding(word_ids)                                    # words_emb[B, emb_dim]
 
         # Concatenate embedding and previous attention vector (ht~)
-        x = torch.cat((words_emb, attn_vec), dim=1)  # x[B, emb_dim + attn_size]
+        x = torch.cat((words_emb, attn_vec), dim=1)                             # x[B, emb_dim + attn_size]
+
+        # Add time_step dimension
+        x = x.unsqueeze(1)                                                      # x[B, T=1, emb_dim + attn_size]
 
         # Obtain hidden state ht
-        x = x.unsqueeze(1)  # [B, T=1, emb_dim + attn_size]
-        _, ht = self.gru(x, prev_hidden)  # ht[num_layers=1, B, h_size]
+        _, ht = self.gru(x, prev_hidden)                                        # ht[num_layers=1, B, h_size]
 
         # Obtain context vector and attention weights
         context_vec, attn_weights = self.attn_layer(ht, enc_outputs, mask_ids)  # context_vec[B, h_size]
-                                                                                # attn_weights[B, T, 1]
+                                                                                # attn_weights[B, T]
         # Compute attention vector (ht~)
-        ht_ = ht.squeeze(0)  # [num_layers=1, B, h_size] -> [B, h_size]
-        merged = torch.cat((context_vec, ht_), dim=1)  # merged[B, 2 * h_size]
-        attn_vec = self.fc_attn_vec(merged)  # attn_vec[B, attn_size]
+        ht_ = ht.squeeze(0)                                                     # [1, B, h_size] -> [B, h_size]
+        merged = torch.cat((context_vec, ht_), dim=1)                           # merged[B, 2 * h_size]
+        attn_vec = self.fc_attn_vec(merged)                                     # attn_vec[B, attn_size]
 
         # Obtain predictions (no activation function)
-        logits = self.fc_classifier(attn_vec)  # logits[B, vocab_size]
+        logits = self.fc_classifier(attn_vec)                                   # logits[B, vocab_size]
 
         return {
             "logits": logits,
@@ -155,60 +183,116 @@ class Seq2Seq(nn.Module):
         """
         Args:
             inputs: Word indices from source vocabulary
-                shape=[batch_size, enc_max_time_steps]
-            mask_ids: Auto-generated masks based on inputs
-                shape=[batch_size, enc_max_time_steps]
-            targets: (Optional) Word indices from target vocabulary
-                shape=[batch_size, dec_max_time_steps]
+                shape=[batch_size, max_time_steps_inputs]
+            mask_ids: Tensor with shape of inputs for variable sized sequences
+                shape=[batch_size, max_time_steps_inputs]
+            targets: (Optional) Word indices from target vocabulary. Used for teacher training.
+                shape=[batch_size, max_time_steps_targets]
         Returns:
-            predictions:
-
-            attn_weight_list
+            output:
+                logits:
+                attn_weights:
+                predictions:
         """
         batch_size = inputs.size(0)
 
         # Obtain outputs from encoder
-        enc_outputs, enc_ht = self.encoder(inputs)
+        (enc_outputs, enc_ht) = self.encoder(inputs)
 
-        # Initialize inputs for 1-time step od decoder
-        inpt_ids, inpt_attn_vec = self._init_first_input(batch_size=batch_size)
-        inpt_ht = enc_ht  # Take encoder hidden state for initial state for decoder
+        # Initialize zero-vectors inputs for 1-time step for decoder
+        (input_ids, input_attn_vec) = self._init_start_input(batch_size=batch_size)
+        input_ht = enc_ht.detach()  # Take encoder hidden state for initial state for decoder
 
+        # Consolidate all inputs for prediction
+        decoder_inputs = {
+            "input_ids": input_ids,
+            "input_attn_vec": input_attn_vec,
+            "input_ht": input_ht,
+            "mask_ids": mask_ids,
+            "enc_outputs": enc_outputs
+        }
+
+        if targets is not None:
+            output = self.prediction_with_teacher(targets, **decoder_inputs)
+        else:
+            output = self.prediction_without_teacher(**decoder_inputs)
+
+        # Modify output
+        output["logits"] = torch.stack(output["logits"])                    # logits[T, B, dec_vocab_size]
+        output["logits"] = output["logits"].transpose(1, 0)                 # logits[T, B, *] -> [B, T, *]
+        output["attn_weights"] = torch.stack(output["attn_weights"])        # attn_weights[T, B, enc_outputs]
+        output["attn_weights"] = output["attn_weights"].transpose(1, 0)     # attn_weights[T, B, *] -> [B, T, *]
+        output["predictions"] = torch.argmax(output["logits"], dim=2)       # predictions[]
+
+        return output
+
+    def _init_start_input(self, batch_size):
+        zero_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
+        zero_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device=self.device)
+
+        return zero_ids, zero_attn_vec
+
+    def prediction_with_teacher(self, targets, **kwargs):
+        """
+        Run prediction where at each time step an input from targets is taken as new input.
+
+        Args:
+            targets: Target word indices from target vocabulary.
+                shape=[batch_size, max_time_steps_targets]
+            kwargs:
+                input_ids: Current input word indices from target vocabulary.
+                    shape=[batch_size]
+                input_attn_vec: Previously computed attention vector
+                    shape=[batch_size, attention_size]
+                input_ht: Previous computed hidden state from decoder RNN
+                    shape=[num_layers=1, batch_size, hidden_size]
+                mask_ids: Tensor with shape of inputs (of encoder) for variable sized sequences
+                    shape=[batch_size, max_time_steps_inputs]
+                enc_outputs: Output of encoder RNN
+                    shape=[batch_size, time_steps, hidden_size]
+
+        Returns:
+            output:
+                attn_weights: List of tensors[batch_size, enc_max_time_steps] of size 'dec_max_time_steps'
+                logits: List of tensors[batch_size, target_vocab_size] of size 'dec_max_time_steps'
+        """
         # Initialize output for seq2seq
         output = {
             "attn_weights": [],
             "logits": []
         }
 
+        # Retrieve input tensors
+        input_ids = kwargs.get("input_ids")
+        input_attn_vec = kwargs.get("input_attn_vec")
+        input_ht = kwargs.get("input_ht")
+        mask_ids = kwargs.get("mask_ids")
+        enc_outputs = kwargs.get("enc_outputs")
+
         # Iterate over time-steps
         for i in range(targets.size(1)):
-            dec_output = self.decoder(word_ids=inpt_ids,
-                                      attn_vec=inpt_attn_vec,
-                                      enc_outputs=enc_outputs,
-                                      prev_hidden=inpt_ht,
-                                      mask_ids=mask_ids)
+            dec_output = self.decoder(word_ids=input_ids,
+                                      attn_vec=input_attn_vec,
+                                      prev_hidden=input_ht,
+                                      mask_ids=mask_ids,
+                                      enc_outputs=enc_outputs)
 
             # Store decoder outputs (attention weights and raw predictions)
             output["attn_weights"].append(dec_output["attn_weights"])
             output["logits"].append(dec_output["logits"])
 
             # Update inputs for next time step
-            # Use correct word for each next time-step (teacher)
-            inpt_ids = targets[:, i]
-            inpt_attn_vec = dec_output["attn_vec"]
-            inpt_ht = dec_output["hidden_state"]
-
-        # Modify output
-        output["logits"] = torch.stack(output["logits"])  # logits[T, B, dec_vocab_size]
-        output["logits"] = output["logits"].transpose(1, 0)  # logits[T, B, *] -> [B, T, *]
-        output["attn_weights"] = torch.stack(output["attn_weights"])  # attn_weights[T, B, enc_outputs]
-        output["attn_weights"] = output["attn_weights"].transpose(1, 0)  # attn_weights[T, B, *] -> [B, T, *]
-        output["predictions"] = torch.argmax(output["logits"], dim=2)
+            input_ids = targets[:, i]
+            input_attn_vec = dec_output["attn_vec"]
+            input_ht = dec_output["hidden_state"]
 
         return output
 
-    def _init_first_input(self, batch_size):
-        zero_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
-        zero_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device=self.device)
+    def prediction_without_teacher(self, **kwargs):
+        # Initialize output for seq2seq
+        output = {
+            "attn_weights": [],
+            "logits": []
+        }
 
-        return zero_ids, zero_attn_vec
+        return output

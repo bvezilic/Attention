@@ -1,4 +1,4 @@
-import logging
+import sys
 from typing import List, Text, Callable
 
 import torch
@@ -14,8 +14,6 @@ from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor
 from utils import read_params
 from vocab import Vocabulary
-
-logger = logging.getLogger(__file__)
 
 
 class Trainer:
@@ -66,7 +64,7 @@ class Trainer:
         losses = []
 
         for epoch in range(epochs):
-            logger.info("Epoch: {}/{}".format(epoch+1, epochs))
+            print("Epoch: {}/{}".format(epoch+1, epochs))
 
             running_loss = 0
             for i, (inputs, targets) in enumerate(self.data_loader):
@@ -90,9 +88,9 @@ class Trainer:
                 self.optimizer.step()
 
                 running_loss += loss
-                logger.info("Batch loss {}/{}: {:.4f}".format(i+1, len(self.data_loader), loss))
+                print("Batch loss {}/{}: {:.4f}".format(i+1, len(self.data_loader), loss))
 
-            logger.info("Epoch loss: {}".format(running_loss/len(self.data_loader)))
+            print("Epoch loss: {}".format(running_loss/len(self.data_loader)))
 
         return losses
 
@@ -122,7 +120,7 @@ def train():
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     # Initialize the loss criterion
-    criterion = nn.CrossEntropyLoss(ignore_index=-1)
+    criterion = nn.CrossEntropyLoss(ignore_index=fra_vocab.pad_token.idx)
 
     # Initialize the training and run training loop
     trainer = Trainer(dataset=dataset,
@@ -144,7 +142,7 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
-    parser.add_argument("--batch_size", type=int, default=32,
+    parser.add_argument("--batch_size", type=int, default=128,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")
@@ -152,22 +150,16 @@ if __name__ == "__main__":
                         help="Path to json config file of model parameters")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],
                         help="Run train on cuda/cpu")
-    parser.add_argument("--debug", action="store_true",
-                        help="Set logger to debugging level")
 
     args = parser.parse_args()
 
     # Read model params from file
     model_params = read_params(args.model_params)
 
-    # Set debugging level if provided
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-
     # Validate if cuda is available
     if args.device == "cuda" and torch.cuda.is_available() is False:
-        logger.warning("Set to use cuda, but cuda is not available!")
-        logger.warning("Setting device to use CPU instead of GPU!")
+        sys.stderr("Set to use cuda, but cuda is not available!")
+        sys.stderr("Setting device to use CPU instead of GPU!")
         args.device = "cpu"
 
     train()
