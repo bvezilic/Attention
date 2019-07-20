@@ -1,8 +1,8 @@
 {
   "enc_vocab_size": null,
   "dec_vocab_size": null,
-  "hidden_size": 512,
+  "hidden_size": 128,
   "output_size": null,
-  "embedding_dim": 300,
-  "attn_vec_size": 512
+  "embedding_dim": 200,
+  "attn_vec_size": 128
 }

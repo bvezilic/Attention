@@ -162,6 +162,7 @@ class Seq2Seq(nn.Module):
                  hidden_size,
                  embedding_dim,
                  attn_vec_size,
+                 max_len=128,
                  device="cpu"):
         super().__init__()
         self.enc_vocab_size = enc_vocab_size  # Output size of encoder
@@ -169,6 +170,7 @@ class Seq2Seq(nn.Module):
         self.hidden_size = hidden_size
         self.embedding_dim = embedding_dim
         self.attn_vec_size = attn_vec_size
+        self.max_len = max_len
         self.device = device
 
         self.encoder = Encoder(num_embeddings=enc_vocab_size,
@@ -190,9 +192,12 @@ class Seq2Seq(nn.Module):
                 shape=[batch_size, max_time_steps_targets]
         Returns:
             output:
-                logits:
-                attn_weights:
-                predictions:
+                logits: Raw models predictions
+                    shape=[batch_size, dec_time_steps, tar_vocab_size]
+                attn_weights: Attention score
+                    shape=[batch_size, dec_time_steps, enc_time_steps]
+                predictions: Word indices predictions
+                    shape=[batch_size, dec_time_steps]
         """
         batch_size = inputs.size(0)
 
@@ -294,5 +299,30 @@ class Seq2Seq(nn.Module):
             "attn_weights": [],
             "logits": []
         }
+
+        # Retrieve input tensors
+        input_ids = kwargs.get("input_ids")
+        input_attn_vec = kwargs.get("input_attn_vec")
+        input_ht = kwargs.get("input_ht")
+        mask_ids = kwargs.get("mask_ids")
+        enc_outputs = kwargs.get("enc_outputs")
+
+        step = 0
+        # Iterate over time-steps
+        while step < self.max_len:
+            dec_output = self.decoder(word_ids=input_ids,
+                                      attn_vec=input_attn_vec,
+                                      prev_hidden=input_ht,
+                                      mask_ids=mask_ids,
+                                      enc_outputs=enc_outputs)
+
+            # Store decoder outputs (attention weights and raw predictions)
+            output["attn_weights"].append(dec_output["attn_weights"])
+            output["logits"].append(dec_output["logits"])
+
+            # Update inputs for next time step
+            input_ids = dec_output["logits"].argmax(-1)
+            input_attn_vec = dec_output["attn_vec"]
+            input_ht = dec_output["hidden_state"]
 
         return output

@@ -36,6 +36,20 @@ class ToIndices(NameMixIn):
         return self.vocabulary.token2idx(tokens)
 
 
+class ToWords(NameMixIn):
+    """
+    Transforms indices into word tokens based on vocabulary.
+    """
+    def __init__(self, vocabulary: Vocabulary):
+        self.vocabulary = vocabulary
+
+    def __repr__(self):
+        return f"{self.name}(vocabulary={self.vocabulary})"
+
+    def __call__(self, indices: List[int]) -> List[Text]:
+        return self.vocabulary.idx2token(indices)
+
+
 class ToTensor(NameMixIn):
     """
     Transforms given data to `torch.Tensor` of specific `dtype`.

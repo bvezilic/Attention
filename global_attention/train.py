@@ -1,41 +1,64 @@
+import os
+import os.path as osp
 import sys
-from typing import List, Text, Callable
+from typing import Text, Callable
 
 import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision.transforms import Compose
 
 from data import NMTDataset
+from history import History
+from metrics import Metric, BLEUMetric
+from mixin import NameMixIn
 from model import Seq2Seq
 from tokenizer import Tokenizer
-from transform import ToTokens, ToIndices, ToTensor
-from utils import read_params
+from transform import ToTokens, ToIndices, ToTensor, ToWords
+from utils import read_params, save_model
 from vocab import Vocabulary
 
 
-class Trainer:
+class Trainer(NameMixIn):
     def __init__(self,
                  dataset: NMTDataset,
                  model: Seq2Seq,
                  optimizer: Optimizer,
                  criterion: Callable,
+                 metric: Metric,
                  batch_size: int,
-                 device: Text):
+                 device: Text,
+                 save_dir: Text,
+                 test_split: float = 0.):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
-        self.device = device
+        self.metric = metric
         self.batch_size = batch_size
+        self.device = device
+        self.save_dir = save_dir
+        self.test_split = test_split
+
+        # Set training and test data set
+        if 1. > self.test_split > 0.:
+            self.train_dataset, self.test_dataset = self.train_test_split()
+        else:
+            self.train_dataset = self.dataset
+            self.test_dataset = None
 
         # Initialize train data loader
-        self.data_loader = DataLoader(dataset,
-                                      shuffle=True,
-                                      batch_size=batch_size,
-                                      collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
+        self.train_loader = DataLoader(self.train_dataset,
+                                       batch_size=batch_size,
+                                       collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
+        if self.test_dataset is not None:
+            self.test_loader = DataLoader(self.test_dataset,
+                                          batch_size=batch_size,
+                                          collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
+        else:
+            self.test_loader = None
 
         # Set model to device
         self.model.to(device)
@@ -50,24 +73,21 @@ class Trainer:
             f"device={self.device}\n" \
             f"batch_size={self.batch_size}"
 
-    @property
-    def name(self) -> Text:
-        return self.__class__.__name__
-
-    def train(self, epochs: int) -> List[float]:
+    def train(self, epochs: int) -> History:
         """
         Runs training for number of `epochs`.
 
         Returns:
             losses: List of losses for each epoch
         """
-        losses = []
+        train_history = History()
 
         for epoch in range(epochs):
-            print("Epoch: {}/{}".format(epoch+1, epochs))
+            print(f"Epoch: {epoch+1}/{epochs}")
 
             running_loss = 0
-            for i, (inputs, targets) in enumerate(self.data_loader):
+            running_score = 0
+            for i, (inputs, targets) in enumerate(self.train_loader):
                 self.optimizer.zero_grad()
 
                 inputs = inputs.to(self.device)  # [B, T]
@@ -78,6 +98,7 @@ class Trainer:
                 output = self.model(inputs=inputs,
                                     mask_ids=mask_ids,
                                     targets=targets)
+
                 # Compute cross-entropy loss
                 loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
                                       target=targets.reshape(-1))
@@ -87,31 +108,115 @@ class Trainer:
                 # Update weights
                 self.optimizer.step()
 
+                # Compute metric score
+                score = self.metric.score(y_pred=output["predictions"], y_true=targets)
+
                 running_loss += loss
-                print("Batch loss {}/{}: {:.4f}".format(i+1, len(self.data_loader), loss))
+                running_score += score
+                print(f"Batch loss {i+1}/{len(self.train_loader)}: {loss:.4f}")
+                print(f"Batch score {i+1}/{len(self.train_loader)}: {loss:.4f}")
 
-            print("Epoch loss: {}".format(running_loss/len(self.data_loader)))
+            train_loss = running_loss/len(self.train_loader)
+            train_score = running_score/len(self.train_loader)
+            print(f"TRAIN - Epoch loss: {train_loss:.4f}")
+            print(f"TRAIN - Epoch {self.metric.name} score: {train_score:.4f}")
 
-        return losses
+            # Run evaluation on test set
+            if self.test_dataset:
+                test_loss, test_score = self.eval()
+            else:
+                test_loss, test_score = None, None
+
+            # Update training history
+            train_history.update(train_loss=train_loss,
+                                 train_score=train_score,
+                                 test_loss=test_loss,
+                                 test_score=test_score)
+
+            self.save_model(epoch_num=epoch, epoch_loss=train_loss)
+
+        return train_history
+
+    def eval(self) -> (float, float):
+        """
+        Run forward pass for test dataset and computes metric score
+        """
+        running_loss = 0
+        running_score = 0
+        for i, (inputs, targets) in enumerate(self.test_loader):
+            self.optimizer.zero_grad()
+
+            inputs = inputs.to(self.device)  # [B, T]
+            targets = targets.to(self.device)  # [B, T]
+            mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
+
+            # Obtain predictions
+            output = self.model(inputs=inputs,
+                                mask_ids=mask_ids,
+                                targets=targets)
+
+            # Compute cross-entropy loss
+            loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
+                                  target=targets.reshape(-1))
+            # Compute gradients
+            loss.backward()
+
+            # Update weights
+            self.optimizer.step()
+
+            # Compute metric score
+            score = self.metric.score(y_pred=output["predictions"], y_true=targets)
+
+            running_loss += loss
+            running_score += score
+
+        epoch_loss = running_loss / len(self.train_loader)
+        metric_score = running_score / len(self.train_loader)
+        print(f"TEST - Epoch loss: {epoch_loss:.4f}")
+        print(f"TEST - Epoch {self.metric.name} score: {metric_score:.4f}")
+
+        return epoch_loss, metric_score
+
+    def train_test_split(self) -> (Subset, Subset):
+        """
+        Randomly splits dataset into 'train_subset' and 'test_subset'
+        """
+        test_size = int(len(self.dataset) * self.test_split)
+        train_size = len(self.dataset) - test_size
+
+        train_subset, test_subset = random_split(self.dataset, lengths=[train_size, test_size])
+
+        return train_subset, test_subset
+
+    def save_model(self, epoch_num: int, epoch_loss: float) -> None:
+        """
+        Saves model to given directory. If directory doesn't exist, one will be created.
+        """
+        if osp.exists(self.save_dir):
+            print(f"Creating directory on path '{self.save_dir}'...")
+            os.makedirs(self.save_dir)
+
+        save_path = osp.join(self.save_dir, f"seq2seq_{epoch_num}_{epoch_loss}.pt")
+        save_model(save_path, self.model)
 
 
 def train():
     # Load the vocabulary
-    eng_vocab = Vocabulary.from_file(args.src_vocab)
-    fra_vocab = Vocabulary.from_file(args.dst_vocab)
+    src_vocab = Vocabulary.from_file(args.src_vocab)
+    tar_vocab = Vocabulary.from_file(args.dst_vocab)
 
     # Initialize the data set
     dataset = NMTDataset(args.data,
-                         src_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=eng_vocab.end_token)),
-                                                ToIndices(vocabulary=eng_vocab),
+                         src_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=src_vocab.end_token)),
+                                                ToIndices(vocabulary=src_vocab),
                                                 ToTensor(dtype=torch.long)]),
-                         tar_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=fra_vocab.end_token)),
-                                                ToIndices(vocabulary=fra_vocab),
+                         tar_transform=Compose([ToTokens(tokenizer=Tokenizer(end_token=tar_vocab.end_token)),
+                                                ToIndices(vocabulary=tar_vocab),
                                                 ToTensor(dtype=torch.long)]))
 
     # Initialize the model
-    model = Seq2Seq(enc_vocab_size=eng_vocab.size,
-                    dec_vocab_size=fra_vocab.size,
+    model = Seq2Seq(enc_vocab_size=src_vocab.size,
+                    dec_vocab_size=tar_vocab.size,
                     hidden_size=model_params["hidden_size"],
                     embedding_dim=model_params["embedding_dim"],
                     attn_vec_size=model_params["attn_vec_size"])
@@ -120,16 +225,21 @@ def train():
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     # Initialize the loss criterion
-    criterion = nn.CrossEntropyLoss(ignore_index=fra_vocab.pad_token.idx)
+    criterion = nn.CrossEntropyLoss(ignore_index=tar_vocab.pad_token.idx)
+
+    # Initialize the score metric
+    metric = BLEUMetric(transforms=ToWords(tar_vocab))
 
     # Initialize the training and run training loop
     trainer = Trainer(dataset=dataset,
                       model=model,
                       optimizer=optimizer,
                       criterion=criterion,
+                      metric=metric,
                       batch_size=args.batch_size,
-                      device=args.device)
-    trainer.train(20)
+                      device=args.device,
+                      save_dir=args.save_dir)
+    trainer.train(args.epochs)
 
 
 if __name__ == "__main__":
@@ -142,10 +252,14 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
+    parser.add_argument("--epochs", type=int, default=5,
+                        help="Number of epochs to run training")
     parser.add_argument("--batch_size", type=int, default=128,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")
+    parser.add_argument("--save_dir", type=str, default="./trained_models",
+                        help="Directory in which to save model")
     parser.add_argument("--model_params", type=str, default="../config/global_attention.json",
                         help="Path to json config file of model parameters")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],

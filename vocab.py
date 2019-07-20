@@ -42,18 +42,18 @@ class Vocabulary(NameMixIn):
         elif isinstance(tokens, str):
             return self.token2idx_dict.get(tokens, self.unknown_token.idx)
         else:
-            raise TypeError("Tokens must be of type str or iterable! Given '{}'".format(type(tokens)))
+            raise TypeError(f"Tokens must be of type str or iterable! Given '{type(tokens)}'")
 
-    def idx2token(self, idx: Union[Iterable, List, int]) -> Union[List[Text], Text]:
+    def idx2token(self, indices: Union[Iterable, List, int]) -> Union[List[Text], Text]:
         """
         Retrieve tokens from the vocabulary based on index. If out of bound, an unknown token name is provided instead.
         """
-        if isinstance(idx, Iterable):
-            return [self.idx2token_dict.get(i, self.unknown_token.name) for i in idx]
-        elif isinstance(idx, int):
-            return self.idx2token_dict.get(idx, self.unknown_token.name)
+        if isinstance(indices, Iterable):
+            return [self.idx2token_dict.get(i, self.unknown_token.name) for i in indices]
+        elif isinstance(indices, int):
+            return self.idx2token_dict.get(indices, self.unknown_token.name)
         else:
-            raise TypeError("Tokens must be of type int or iterable! Given '{}'".format(type(idx)))
+            raise TypeError(f"Tokens must be of type int or iterable! Given '{type(indices)}'")
 
     def save(self, filepath: Text) -> None:
         with open(filepath, "w", encoding="utf-8") as f:

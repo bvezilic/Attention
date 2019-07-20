@@ -1,8 +1,8 @@
 import torch
-from utils import load_model
 from torchvision.transforms import Compose
-from transform import ToTokens, ToTensor, ToIndices
+
 from tokenizer import Tokenizer
+from transform import ToTokens, ToTensor, ToIndices
 
 
 class Predictor:

@@ -1,4 +1,4 @@
-from typing import Text, Callable, List, Tuple, Any
+from typing import Text, Callable, List, Tuple, Any, Dict
 
 import pandas as pd
 import torch
@@ -6,6 +6,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from mixin import NameMixIn
+from tokenizer import Tokenizer
 
 
 class NMTDataset(Dataset, NameMixIn):
@@ -48,6 +49,24 @@ class NMTDataset(Dataset, NameMixIn):
             tar = self.tar_transform(tar)
 
         return src, tar
+
+    def max_sequence_len(self, tokenizer: Tokenizer) -> Dict[Text, int]:
+        """
+        Computes max sequence length of the data set for both source and target language.
+        > Depending on the size of the data set, tokenization might take some time.
+
+        Args:
+            tokenizer: Tokenizer with func `tokenize`.
+
+        Returns:
+            seq_max_lengths: Dictionary with max sequence length for both source and target language. Dictionary key
+                correspond to language names.
+        """
+        print("Converting text into tokens...")
+        df = self.train_data.applymap(tokenizer.tokenize)
+        seq_max_lengths = df.applymap(len).max().to_dict()
+
+        return seq_max_lengths
 
     @staticmethod
     def collate_fn(batch: List[Tuple[Any]], padding_value: int = 0) -> (torch.Tensor, torch.Tensor):
