@@ -1,6 +1,10 @@
+from typing import List, Text
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from base import BaseModel
 
 
 class Encoder(nn.Module):
@@ -155,7 +159,7 @@ class Decoder(nn.Module):
         }
 
 
-class Seq2Seq(nn.Module):
+class Seq2Seq(BaseModel):
     def __init__(self,
                  enc_vocab_size,
                  dec_vocab_size,
@@ -180,6 +184,16 @@ class Seq2Seq(nn.Module):
                                embedding_dim=embedding_dim,
                                hidden_size=hidden_size,
                                attn_vec_size=attn_vec_size)
+
+    @property
+    def attribute_names(self) -> List[Text]:
+        return ["enc_vocab_size",
+                "dec_vocab_size",
+                "hidden_size",
+                "embedding_dim",
+                "attn_vec_size",
+                "max_len",
+                "device"]
 
     def forward(self, inputs, mask_ids, targets=None):
         """
@@ -227,7 +241,7 @@ class Seq2Seq(nn.Module):
         output["logits"] = output["logits"].transpose(1, 0)                 # logits[T, B, *] -> [B, T, *]
         output["attn_weights"] = torch.stack(output["attn_weights"])        # attn_weights[T, B, enc_outputs]
         output["attn_weights"] = output["attn_weights"].transpose(1, 0)     # attn_weights[T, B, *] -> [B, T, *]
-        output["predictions"] = torch.argmax(output["logits"], dim=2)       # predictions[]
+        output["predictions"] = torch.argmax(output["logits"], dim=2)       # predictions[B, T]
 
         return output
 

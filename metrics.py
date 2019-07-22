@@ -54,15 +54,17 @@ class BLEUMetric(Metric):
             y_pred = y_pred.view(-1).tolist()
             y_true = y_true.view(-1).tolist()
 
+            # Transform data and convert to numpy array
             y_pred = np.array(self.transforms(y_pred))
             y_true = np.array(self.transforms(y_true))
 
+            # Reshape back to original shape
             y_pred = y_pred.reshape(y_pred_shape)
             y_true = y_true.reshape(y_true_shape)
 
+        # Convert to list to match NLTK bleu input
         hypotheses = y_pred.tolist()
         references = np.expand_dims(y_true, axis=1).tolist()
-
         #TODO: Remove special characters [PAD], [EOS], [UNK]
 
         score = corpus_bleu(list_of_references=references, hypotheses=hypotheses)

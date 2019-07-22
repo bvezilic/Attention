@@ -10,14 +10,14 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, random_split, Subset
 from torchvision.transforms import Compose
 
+from base import History
 from data import NMTDataset
-from history import History
 from metrics import Metric, BLEUMetric
 from mixin import NameMixIn
 from model import Seq2Seq
 from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor, ToWords
-from utils import read_params, save_model
+from utils import read_params
 from vocab import Vocabulary
 
 
@@ -197,7 +197,7 @@ class Trainer(NameMixIn):
             os.makedirs(self.save_dir)
 
         save_path = osp.join(self.save_dir, f"seq2seq_{epoch_num}_{epoch_loss}.pt")
-        save_model(save_path, self.model)
+        self.model.save(save_path)
 
 
 def train():
