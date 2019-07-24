@@ -51,10 +51,12 @@ class Trainer(NameMixIn):
 
         # Initialize train data loader
         self.train_loader = DataLoader(self.train_dataset,
+                                       shuffle=True,
                                        batch_size=batch_size,
                                        collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
         if self.test_dataset is not None:
             self.test_loader = DataLoader(self.test_dataset,
+                                          shuffle=True,
                                           batch_size=batch_size,
                                           collate_fn=lambda x: dataset.collate_fn(x, padding_value=0))
         else:
@@ -80,10 +82,11 @@ class Trainer(NameMixIn):
         Returns:
             losses: List of losses for each epoch
         """
+        self.model.train()  # Set model in train mode
         train_history = History()
 
         for epoch in range(epochs):
-            print(f"Epoch: {epoch+1}/{epochs}")
+            print(f"Epoch: {epoch + 1}/{epochs}")
 
             running_loss = 0
             running_score = 0
@@ -111,21 +114,17 @@ class Trainer(NameMixIn):
                 # Compute metric score
                 score = self.metric.score(y_pred=output["predictions"], y_true=targets)
 
-                running_loss += loss
+                running_loss += loss.item()
                 running_score += score
-                print(f"Batch loss {i+1}/{len(self.train_loader)}: {loss:.4f}")
-                print(f"Batch score {i+1}/{len(self.train_loader)}: {loss:.4f}")
+                print(f"BATCH {i + 1}/{len(self.train_loader)} - loss: {loss:.4f} - score: {score:.4f}")
+                break
 
-            train_loss = running_loss/len(self.train_loader)
-            train_score = running_score/len(self.train_loader)
-            print(f"TRAIN - Epoch loss: {train_loss:.4f}")
-            print(f"TRAIN - Epoch {self.metric.name} score: {train_score:.4f}")
+            train_loss = running_loss / len(self.train_loader)
+            train_score = running_score / len(self.train_loader)
+            print(f"TRAIN - loss: {train_loss:.4f} - score: {train_score:.4f}")
 
-            # Run evaluation on test set
-            if self.test_dataset:
-                test_loss, test_score = self.eval()
-            else:
-                test_loss, test_score = None, None
+            # Run evaluation on test set if available
+            (test_loss, test_score) = self.eval() if self.test_dataset else (None, None)
 
             # Update training history
             train_history.update(train_loss=train_loss,
@@ -133,7 +132,8 @@ class Trainer(NameMixIn):
                                  test_loss=test_loss,
                                  test_score=test_score)
 
-            self.save_model(epoch_num=epoch, epoch_loss=train_loss)
+            # Save model to `save_dir`
+            self.save_model(epoch_num=epoch, epoch_loss=train_loss, epoch_score=train_score)
 
         return train_history
 
@@ -141,6 +141,8 @@ class Trainer(NameMixIn):
         """
         Run forward pass for test dataset and computes metric score
         """
+        self.model.eval()  # Set model to evaluation
+
         running_loss = 0
         running_score = 0
         for i, (inputs, targets) in enumerate(self.test_loader):
@@ -167,13 +169,14 @@ class Trainer(NameMixIn):
             # Compute metric score
             score = self.metric.score(y_pred=output["predictions"], y_true=targets)
 
-            running_loss += loss
+            running_loss += loss.item()
             running_score += score
 
         epoch_loss = running_loss / len(self.train_loader)
         metric_score = running_score / len(self.train_loader)
-        print(f"TEST - Epoch loss: {epoch_loss:.4f}")
-        print(f"TEST - Epoch {self.metric.name} score: {metric_score:.4f}")
+        print(f"TEST - loss: {epoch_loss:.4f} - score: {metric_score:.4f}")
+
+        self.model.train()  # Return model to train mode
 
         return epoch_loss, metric_score
 
@@ -188,15 +191,15 @@ class Trainer(NameMixIn):
 
         return train_subset, test_subset
 
-    def save_model(self, epoch_num: int, epoch_loss: float) -> None:
+    def save_model(self, epoch_num: int, epoch_loss: float, epoch_score: float) -> None:
         """
         Saves model to given directory. If directory doesn't exist, one will be created.
         """
-        if osp.exists(self.save_dir):
-            print(f"Creating directory on path '{self.save_dir}'...")
+        if not osp.exists(self.save_dir):
+            print(f"Creating directory on path '{osp.abspath(self.save_dir)}'...")
             os.makedirs(self.save_dir)
 
-        save_path = osp.join(self.save_dir, f"seq2seq_{epoch_num}_{epoch_loss}.pt")
+        save_path = osp.join(self.save_dir, f"seq2seq_ep:{epoch_num}-loss:{epoch_loss:.4f}-score:{epoch_score:.4f}.pt")
         self.model.save(save_path)
 
 
@@ -254,7 +257,7 @@ if __name__ == "__main__":
                         help="Path to destination vocabulary")
     parser.add_argument("--epochs", type=int, default=5,
                         help="Number of epochs to run training")
-    parser.add_argument("--batch_size", type=int, default=128,
+    parser.add_argument("--batch_size", type=int, default=32,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")

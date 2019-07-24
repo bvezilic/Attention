@@ -1,14 +1,18 @@
 import os
-from typing import Text, List, Dict, Any
 import sys
+from typing import Text, List, Dict, Any
+
 import torch
 from torch import nn
+
+from mixin import NameMixIn
 
 
 class BaseModel(nn.Module):
     """
     Tracks objects attributes and provides methods for model serialization/deserialization
     """
+
     @property
     def attribute_names(self) -> List[Text]:
         raise NotImplementedError
@@ -39,25 +43,38 @@ class BaseModel(nn.Module):
         return model
 
 
-class History:
+class History(NameMixIn):
     """
     Container class for storing losses/scores during training.
     """
+
     def __init__(self):
         self.train_losses = []
         self.test_losses = []
         self.train_scores = []
         self.test_scores = []
 
-    def update(self,
-               train_loss: float,
-               train_score: float,
-               test_loss: float = None,
-               test_score: float = None):
-        self.train_losses.append(train_loss)
-        self.test_losses.append(test_loss)
+    def __repr__(self):
+        return f"{self.name}:\n" \
+            f"train_losses={len(self.train_losses)}\n" \
+            f"test_losses={len(self.test_losses)}\n" \
+            f"train_scores={len(self.train_scores)}\n" \
+            f"test_scores={len(self.test_scores)}"
 
-        if test_score is None:
-            self.train_scores.append(train_score)
-        if test_loss is None:
-            self.test_scores.append(test_score)
+    def update(self,
+               train_loss: float = None,
+               train_score: float = None,
+               test_loss: float = None,
+               test_score: float = None) -> None:
+        self.add_to_list(self.train_losses, train_loss)
+        self.add_to_list(self.train_scores, train_score)
+        self.add_to_list(self.test_losses, test_loss)
+        self.add_to_list(self.test_scores, test_score)
+
+    @staticmethod
+    def add_to_list(l: List[float], value: float) -> None:
+        """
+        Append value to list if value is not None
+        """
+        if value is not None:
+            l.append(value)
