@@ -339,4 +339,7 @@ class Seq2Seq(BaseModel):
             input_attn_vec = dec_output["attn_vec"]
             input_ht = dec_output["hidden_state"]
 
+            # Increment to next step
+            step += 1
+
         return output

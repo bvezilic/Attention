@@ -31,6 +31,7 @@ class Trainer(NameMixIn):
                  batch_size: int,
                  device: Text,
                  save_dir: Text,
+                 padding_idx: int = 0,
                  test_split: float = 0.):
         self.dataset = dataset
         self.model = model
@@ -40,6 +41,7 @@ class Trainer(NameMixIn):
         self.batch_size = batch_size
         self.device = device
         self.save_dir = save_dir
+        self.padding_idx = padding_idx
         self.test_split = test_split
 
         # Set training and test data set
@@ -95,7 +97,7 @@ class Trainer(NameMixIn):
 
                 inputs = inputs.to(self.device)  # [B, T]
                 targets = targets.to(self.device)  # [B, T]
-                mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
+                mask_ids = (inputs != self.padding_idx)  # Create mask where word_idx=1 and pad=0
 
                 # Obtain predictions
                 output = self.model(inputs=inputs,
@@ -117,7 +119,6 @@ class Trainer(NameMixIn):
                 running_loss += loss.item()
                 running_score += score
                 print(f"BATCH {i + 1}/{len(self.train_loader)} - loss: {loss:.4f} - score: {score:.4f}")
-                break
 
             train_loss = running_loss / len(self.train_loader)
             train_score = running_score / len(self.train_loader)
@@ -143,42 +144,38 @@ class Trainer(NameMixIn):
         """
         self.model.eval()  # Set model to evaluation
 
-        running_loss = 0
-        running_score = 0
-        for i, (inputs, targets) in enumerate(self.test_loader):
-            self.optimizer.zero_grad()
+        with torch.no_grad():
+            running_loss = 0
+            running_score = 0
+            for i, (inputs, targets) in enumerate(self.test_loader):
+                self.optimizer.zero_grad()
 
-            inputs = inputs.to(self.device)  # [B, T]
-            targets = targets.to(self.device)  # [B, T]
-            mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
+                inputs = inputs.to(self.device)  # [B, T]
+                targets = targets.to(self.device)  # [B, T]
+                mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
 
-            # Obtain predictions
-            output = self.model(inputs=inputs,
-                                mask_ids=mask_ids,
-                                targets=targets)
+                # Obtain predictions
+                output = self.model(inputs=inputs,
+                                    mask_ids=mask_ids,
+                                    targets=targets)
 
-            # Compute cross-entropy loss
-            loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
-                                  target=targets.reshape(-1))
-            # Compute gradients
-            loss.backward()
+                # Compute cross-entropy loss
+                loss = self.criterion(input=output["logits"].reshape(-1, output["logits"].size(2)),
+                                      target=targets.reshape(-1))
 
-            # Update weights
-            self.optimizer.step()
+                # Compute metric score
+                score = self.metric.score(y_pred=output["predictions"], y_true=targets)
 
-            # Compute metric score
-            score = self.metric.score(y_pred=output["predictions"], y_true=targets)
+                running_loss += loss.item()
+                running_score += score
 
-            running_loss += loss.item()
-            running_score += score
+            epoch_loss = running_loss / len(self.train_loader)
+            metric_score = running_score / len(self.train_loader)
+            print(f"TEST - loss: {epoch_loss:.4f} - score: {metric_score:.4f}")
 
-        epoch_loss = running_loss / len(self.train_loader)
-        metric_score = running_score / len(self.train_loader)
-        print(f"TEST - loss: {epoch_loss:.4f} - score: {metric_score:.4f}")
+            self.model.train()  # Return model to train mode
 
-        self.model.train()  # Return model to train mode
-
-        return epoch_loss, metric_score
+            return epoch_loss, metric_score
 
     def train_test_split(self) -> (Subset, Subset):
         """
@@ -241,7 +238,8 @@ def train():
                       metric=metric,
                       batch_size=args.batch_size,
                       device=args.device,
-                      save_dir=args.save_dir)
+                      save_dir=args.save_dir,
+                      padding_idx=src_vocab.pad_token.idx)
     trainer.train(args.epochs)
 
 
@@ -255,9 +253,9 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
-    parser.add_argument("--epochs", type=int, default=5,
+    parser.add_argument("--epochs", type=int, default=3,
                         help="Number of epochs to run training")
-    parser.add_argument("--batch_size", type=int, default=32,
+    parser.add_argument("--batch_size", type=int, default=64,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate for optimizer")

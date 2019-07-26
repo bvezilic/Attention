@@ -1,10 +1,9 @@
-from typing import Any, List
-
 import numpy as np
 import torch
 from nltk.translate.bleu_score import corpus_bleu
 
 from mixin import NameMixIn
+from utils import filter_tokens
 
 
 class Metric(NameMixIn):
@@ -17,6 +16,9 @@ class AccuracyMetric(Metric):
         super().__init__()
 
     def score(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
+        """
+        Computes accuracy for two tensors of the same shape.
+        """
         if y_true.shape != y_pred.shape:
             raise ValueError(
                 f"Tensors 'y_true'={y_true.size()} and 'y_pred'={y_pred.size()} must be of the same shape!")
@@ -70,35 +72,10 @@ class BLEUMetric(Metric):
         hypotheses = y_pred.tolist()
         references = np.expand_dims(y_true, axis=1).tolist()
 
-        hypotheses = self.filter_tokens(hypotheses)
-        references = self.filter_tokens(references)
+        # Filter out special tokens (PAD, EOS, UNK)
+        hypotheses = filter_tokens(hypotheses)
+        references = filter_tokens(references)
 
         score = corpus_bleu(list_of_references=references, hypotheses=hypotheses)
 
         return score
-
-    def filter_tokens(self, l: List[Any]) -> List[Any]:
-        """
-        Recursively filters special tokens (PAD, EOS, UNK). When PAD or UNK are encountered, they are skipped. However,
-        when EOS is encountered iteration stops i.e. no following tokens are recorded.
-
-        Args:
-            l (list): List containing any number of nested lists
-
-        Returns:
-            tokens: List of filtered tokens with the same shape
-        """
-        tokens = []
-        for el in l:
-            if isinstance(el, list):
-                tokens_ = self.filter_tokens(el)
-                tokens.append(tokens_)
-            else:
-                if el == "[EOS]":
-                    break
-                elif el == "[PAD]" or el == "[UNK]":
-                    continue
-                else:
-                    tokens.append(el)
-
-        return tokens
