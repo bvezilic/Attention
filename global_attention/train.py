@@ -12,13 +12,16 @@ from torchvision.transforms import Compose
 
 from base import History
 from data import NMTDataset
+from global_attention.model import Seq2Seq
 from metrics import Metric, BLEUMetric
 from mixin import NameMixIn
-from model import Seq2Seq
 from tokenizer import Tokenizer
 from transform import ToTokens, ToIndices, ToTensor, ToWords
 from utils import read_params
 from vocab import Vocabulary
+
+# Set random seed
+torch.random.manual_seed(47)
 
 
 class Trainer(NameMixIn):
@@ -32,7 +35,7 @@ class Trainer(NameMixIn):
                  device: Text,
                  save_dir: Text,
                  padding_idx: int = 0,
-                 test_split: float = 0.):
+                 test_split: float = 0.1):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
@@ -148,8 +151,6 @@ class Trainer(NameMixIn):
             running_loss = 0
             running_score = 0
             for i, (inputs, targets) in enumerate(self.test_loader):
-                self.optimizer.zero_grad()
-
                 inputs = inputs.to(self.device)  # [B, T]
                 targets = targets.to(self.device)  # [B, T]
                 mask_ids = (inputs != 0)  # Create mask where word_idx=1 and pad=0
@@ -169,8 +170,8 @@ class Trainer(NameMixIn):
                 running_loss += loss.item()
                 running_score += score
 
-            epoch_loss = running_loss / len(self.train_loader)
-            metric_score = running_score / len(self.train_loader)
+            epoch_loss = running_loss / len(self.test_loader)
+            metric_score = running_score / len(self.test_loader)
             print(f"TEST - loss: {epoch_loss:.4f} - score: {metric_score:.4f}")
 
             self.model.train()  # Return model to train mode
@@ -240,7 +241,8 @@ def train():
                       device=args.device,
                       save_dir=args.save_dir,
                       padding_idx=src_vocab.pad_token.idx)
-    trainer.train(args.epochs)
+    history = trainer.train(args.epochs)
+    history.save("./train_log.json")
 
 
 if __name__ == "__main__":
@@ -253,11 +255,11 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
-    parser.add_argument("--epochs", type=int, default=3,
+    parser.add_argument("--epochs", type=int, default=25,
                         help="Number of epochs to run training")
     parser.add_argument("--batch_size", type=int, default=64,
                         help="Number of samples per batch")
-    parser.add_argument("--lr", type=float, default=1e-3,
+    parser.add_argument("--lr", type=float, default=3e-4,
                         help="Learning rate for optimizer")
     parser.add_argument("--save_dir", type=str, default="./trained_models",
                         help="Directory in which to save model")

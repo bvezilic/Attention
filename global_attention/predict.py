@@ -1,13 +1,60 @@
-from typing import Union, Text, List, Any, Dict
+import string
+from typing import Union, Text, List
 
+import numpy as np
+import seaborn as sns
 import torch
 from torchvision.transforms import Compose
 
+from global_attention.model import Seq2Seq
 from tokenizer import Tokenizer
 from transform import ToTokens, ToTensor, ToIndices, ToWords
-from model import Seq2Seq
 from utils import filter_tokens
-from vocab import Vocabulary
+from vocab import Vocabulary, Token
+
+
+class Translation:
+    def __init__(self,
+                 input_tokens: List[Text],
+                 pred_tokens: List[Text],
+                 attn_weights: np.ndarray,
+                 end_token: Token):
+        self.input_tokens = input_tokens
+        self.pred_tokens = pred_tokens
+        self.attn_weights = attn_weights.transpose()
+        self.end_token = end_token
+        self.eos_index = self.pred_tokens.index(end_token.name)
+
+    def __repr__(self):
+        return self.text
+
+    @property
+    def text(self) -> Text:
+        text = ""
+        for i, token in enumerate(self.pred_tokens[:self.eos_index]):
+            if any(char in set(string.punctuation) for char in token) or i == 0:
+                text += "" + token
+            else:
+                text += " " + token
+        return text
+
+    @property
+    def attention_matrix(self) -> np.ndarray:
+        if self.eos_index is None:
+            return self.attn_weights
+        else:
+            return self.attn_weights[:, :self.eos_index]
+
+    def plot_attention(self):
+        trans_words = self.pred_tokens[:self.eos_index]
+
+        return sns.heatmap(data=self.attention_matrix,
+                           xticklabels=trans_words,
+                           yticklabels=self.input_tokens,
+                           vmin=0,
+                           vmax=1,
+                           annot=True,
+                           fmt=".2f")
 
 
 class Predictor:
@@ -34,7 +81,15 @@ class Predictor:
                                       ToTensor(dtype=torch.long)])
         self.tar_transform = Compose([ToWords(vocabulary=tar_vocab)])
 
-    def __call__(self, texts: Union[Text, List[Text]]) -> Union[Dict, List[Dict]]:
+    def __call__(self, texts: Union[Text, List[Text]]) -> Union[Translation, List[Translation]]:
+        """Runs inference on single line of text or list of texts. Forward pass is done per example not in batches.
+
+        Args:
+            texts: Single sentence or list of sentences for translation.
+
+        Returns:
+            Single or multiple dict objects like:
+        """
         if isinstance(texts, str):
             return self._predict_text(texts)
         elif isinstance(texts, list):
@@ -42,14 +97,14 @@ class Predictor:
         else:
             raise ValueError(f"Expected object of type 'str' or 'list' got {type(texts)}")
 
-    def _predict_text(self, text: Text) -> Dict[Text, Any]:
-        """
+    def _predict_text(self, text: Text) -> Union[Translation, List[Translation]]:
+        """Run inference on single line of text.
 
         Args:
-            text:
+            text (str): Sentence to translate
 
         Returns:
-
+            translation (Translation):
         """
         with torch.no_grad():
             # Convert text to model input
@@ -58,22 +113,23 @@ class Predictor:
             inputs = inputs.to(self.device)
 
             # Create mask for padded tokens
-            mask_ids = (inputs != src_vocab.pad_token.idx)
+            mask_ids = (inputs != self.src_vocab.pad_token.idx)
 
             # Obtain predictions
             output = self.model(inputs=inputs, mask_ids=mask_ids)
 
-            # Process prediction and attn weights
-            prediction = self.tar_transform(output["predictions"][0].tolist())
-            prediction = filter_tokens(prediction)
+            # Process pred_tokens and attn weights
+            pred_tokens = self.tar_transform(output["predictions"][0].tolist())
+            text_tokens = filter_tokens(pred_tokens)
+            input_tokens = self.src_transform.transforms[0](text)
 
             # Convert attn_weights to numpy array
             attn_weights = output["attn_weights"].squeeze(0).numpy()
 
-            return {
-                "prediction": prediction,
-                "attn_weights": attn_weights
-            }
+            return Translation(input_tokens=input_tokens,
+                               pred_tokens=pred_tokens,
+                               attn_weights=attn_weights,
+                               end_token=self.tar_vocab.end_token)
 
 
 if __name__ == '__main__':
@@ -84,13 +140,9 @@ if __name__ == '__main__':
     tar_vocab = Vocabulary.from_file("../dataset/fra_vocab.txt")
 
     # Initialize the model
-    model = Seq2Seq(enc_vocab_size=src_vocab.size,
-                    dec_vocab_size=tar_vocab.size,
-                    hidden_size=128,
-                    embedding_dim=100,
-                    attn_vec_size=128)
+    model = Seq2Seq.load("/home/bane/code/Attention/global_attention/trained_models/seq2seq_ep:9-loss:1.3504-score:0.3818.pt")
 
     predict = Predictor(model, Tokenizer(end_token=src_vocab.end_token), src_vocab, tar_vocab)
-    translation = predict("Does this work?")
+    t = predict("Does this work?")
 
-    print(translation)
+    print(t)

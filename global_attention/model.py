@@ -220,7 +220,7 @@ class Seq2Seq(BaseModel):
 
         # Initialize zero-vectors inputs for 1-time step for decoder
         (input_ids, input_attn_vec) = self._init_start_input(batch_size=batch_size)
-        input_ht = enc_ht.detach()  # Take encoder hidden state for initial state for decoder
+        input_ht = enc_ht  # Take encoder hidden state for initial state for decoder
 
         # Consolidate all inputs for prediction
         decoder_inputs = {
