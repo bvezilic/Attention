@@ -29,6 +29,8 @@ class BaseModel(nn.Module):
         return {attr: getattr(self, attr) for attr in self.attribute_names}
 
     def save(self, path: Text) -> None:
+        """Saves model parameters and weights.
+        """
         torch.save({
             "model_params": self.params_dict,
             "state_dict": self.state_dict()
@@ -36,6 +38,8 @@ class BaseModel(nn.Module):
 
     @classmethod
     def load(cls, path: Text) -> "nn.Module":
+        """Restore model and load weights.
+        """
         path_ = os.path.abspath(path)
         restore = torch.load(path_)
 

@@ -34,6 +34,7 @@ class Trainer(NameMixIn):
                  batch_size: int,
                  device: Text,
                  save_dir: Text,
+                 train_log: Text,
                  padding_idx: int = 0,
                  test_split: float = 0.1):
         self.dataset = dataset
@@ -44,6 +45,7 @@ class Trainer(NameMixIn):
         self.batch_size = batch_size
         self.device = device
         self.save_dir = save_dir
+        self.train_log = train_log
         self.padding_idx = padding_idx
         self.test_split = test_split
 
@@ -73,12 +75,12 @@ class Trainer(NameMixIn):
 
     def __repr__(self):
         return f"{self.name}:\n" \
-            f"dataset={self.dataset}\n" \
-            f"model={self.model}\n" \
-            f"optimizer={self.optimizer}\n" \
-            f"criterion={self.criterion}\n" \
-            f"device={self.device}\n" \
-            f"batch_size={self.batch_size}"
+               f"dataset={self.dataset}\n" \
+               f"model={self.model}\n" \
+               f"optimizer={self.optimizer}\n" \
+               f"criterion={self.criterion}\n" \
+               f"device={self.device}\n" \
+               f"batch_size={self.batch_size}"
 
     def train(self, epochs: int) -> History:
         """
@@ -139,6 +141,9 @@ class Trainer(NameMixIn):
             # Save model to `save_dir`
             self.save_model(epoch_num=epoch, epoch_loss=train_loss, epoch_score=train_score)
 
+            # Save train history
+            self.save_history(train_history=train_history)
+
         return train_history
 
     def eval(self) -> (float, float):
@@ -190,8 +195,7 @@ class Trainer(NameMixIn):
         return train_subset, test_subset
 
     def save_model(self, epoch_num: int, epoch_loss: float, epoch_score: float) -> None:
-        """
-        Saves model to given directory. If directory doesn't exist, one will be created.
+        """Saves model to given directory. If directory doesn't exist, one will be created.
         """
         if not osp.exists(self.save_dir):
             print(f"Creating directory on path '{osp.abspath(self.save_dir)}'...")
@@ -199,6 +203,11 @@ class Trainer(NameMixIn):
 
         save_path = osp.join(self.save_dir, f"seq2seq_ep:{epoch_num}-loss:{epoch_loss:.4f}-score:{epoch_score:.4f}.pt")
         self.model.save(save_path)
+
+    def save_history(self, train_history: History) -> None:
+        """Saves train history object to JSON file.
+        """
+        train_history.save(osp.join(self.save_dir, self.train_log))
 
 
 def train():
@@ -240,9 +249,9 @@ def train():
                       batch_size=args.batch_size,
                       device=args.device,
                       save_dir=args.save_dir,
+                      train_log=args.train_log,
                       padding_idx=src_vocab.pad_token.idx)
-    history = trainer.train(args.epochs)
-    history.save("./train_log.json")
+    trainer.train(args.epochs)
 
 
 if __name__ == "__main__":
@@ -255,14 +264,16 @@ if __name__ == "__main__":
                         help="Path to source vocabulary")
     parser.add_argument("--dst_vocab", type=str, default="../dataset/fra_vocab.txt",
                         help="Path to destination vocabulary")
-    parser.add_argument("--epochs", type=int, default=25,
+    parser.add_argument("--epochs", type=int, default=40,
                         help="Number of epochs to run training")
     parser.add_argument("--batch_size", type=int, default=64,
                         help="Number of samples per batch")
     parser.add_argument("--lr", type=float, default=3e-4,
                         help="Learning rate for optimizer")
-    parser.add_argument("--save_dir", type=str, default="./trained_models",
+    parser.add_argument("--save_dir", type=str, default="./trained_models2",
                         help="Directory in which to save model")
+    parser.add_argument("--train_log", type=str, default="train_log.json",
+                        help="JSON file name for logging train loss/score")
     parser.add_argument("--model_params", type=str, default="../config/global_attention.json",
                         help="Path to json config file of model parameters")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"],

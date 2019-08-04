@@ -18,6 +18,7 @@ class Tokenizer(NameMixIn):
         - Converts text to lowercase
         - Append end token to the end of sequence
     """
+
     def __init__(self, end_token: Token = None, do_lower: bool = True):
         self.end_token = end_token
         self.do_lower = do_lower

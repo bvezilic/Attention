@@ -70,9 +70,9 @@ class AttentionLayer(nn.Module):
         # Apply softmax function on scores
         attn_weights = F.softmax(score, dim=1)                          # attn_weights[B, T, 1]
 
-        # Compute weighted sum (in paper it's average)
+        # Compute weighted average
         # attn_weights[B, T, 1] * encoder_outputs[B, T, h_size]
-        context_vec = torch.sum(attn_weights * encoder_outputs, dim=1)  # context_vec[B, h_size]
+        context_vec = torch.mean(attn_weights * encoder_outputs, dim=1)  # context_vec[B, h_size]
         attn_weights = attn_weights.squeeze(2)                          # attn_weights[B, T, 1] -> [B, T]
 
         return context_vec, attn_weights

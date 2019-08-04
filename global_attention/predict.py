@@ -14,6 +14,10 @@ from vocab import Vocabulary, Token
 
 
 class Translation:
+    """
+    Stores translation predictions and provides visualization of attention weights.
+    """
+
     def __init__(self,
                  input_tokens: List[Text],
                  pred_tokens: List[Text],
@@ -21,7 +25,7 @@ class Translation:
                  end_token: Token):
         self.input_tokens = input_tokens
         self.pred_tokens = pred_tokens
-        self.attn_weights = attn_weights.transpose()
+        self.attn_weights = attn_weights
         self.end_token = end_token
         self.eos_index = self.pred_tokens.index(end_token.name)
 
@@ -45,7 +49,9 @@ class Translation:
         else:
             return self.attn_weights[:, :self.eos_index]
 
-    def plot_attention(self):
+    def plot_attention(self) -> None:
+        """Plots heatmap of attention weights.
+        """
         trans_words = self.pred_tokens[:self.eos_index]
 
         return sns.heatmap(data=self.attention_matrix,
@@ -58,6 +64,10 @@ class Translation:
 
 
 class Predictor:
+    """
+    Translate text or list of texts from source to target language based on pre-trained Seq2Seq model.
+    """
+
     def __init__(self,
                  model: Seq2Seq,
                  tokenizer: Tokenizer,
@@ -124,7 +134,7 @@ class Predictor:
             input_tokens = self.src_transform.transforms[0](text)
 
             # Convert attn_weights to numpy array
-            attn_weights = output["attn_weights"].squeeze(0).numpy()
+            attn_weights = output["attn_weights"].squeeze(0).t().numpy()
 
             return Translation(input_tokens=input_tokens,
                                pred_tokens=pred_tokens,
@@ -140,7 +150,8 @@ if __name__ == '__main__':
     tar_vocab = Vocabulary.from_file("../dataset/fra_vocab.txt")
 
     # Initialize the model
-    model = Seq2Seq.load("/home/bane/code/Attention/global_attention/trained_models/seq2seq_ep:9-loss:1.3504-score:0.3818.pt")
+    model = Seq2Seq.load(
+        "/home/bane/code/Attention/global_attention/trained_models/seq2seq_ep:9-loss:1.3504-score:0.3818.pt")
 
     predict = Predictor(model, Tokenizer(end_token=src_vocab.end_token), src_vocab, tar_vocab)
     t = predict("Does this work?")

@@ -3,8 +3,7 @@ from typing import Text, Dict, Any, List
 
 
 def read_params(path: Text) -> Dict[Text, Any]:
-    """
-    Reads JSON file and return dictionary.
+    """Reads JSON file and return dictionary.
     """
     with open(path, "r") as f:
         return json.load(f)

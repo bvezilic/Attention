@@ -7,6 +7,11 @@ from tokenizer import Token, Tokenizer
 
 
 class Vocabulary(NameMixIn):
+    """
+    Storage language words in a index dictionary. Special tokens are already predefined.
+    Provides methods to retrieve words indices or word text from index.
+    """
+
     pad_token = Token(name="[PAD]", idx=0)
     end_token = Token(name="[EOS]", idx=1)
     unknown_token = Token(name="[UNK]", idx=2)
@@ -34,8 +39,7 @@ class Vocabulary(NameMixIn):
         return len(self.token2idx_dict)
 
     def token2idx(self, tokens: Union[Iterable, List, Text]) -> Union[List[int], int]:
-        """
-        Retrieve tokens index from vocabulary. If not found, an unknown token index is provided instead.
+        """Retrieve tokens index from vocabulary. If not found, an unknown token index is provided instead.
         """
         if isinstance(tokens, Iterable):
             return [self.token2idx_dict.get(token, self.unknown_token.idx) for token in tokens]
@@ -45,8 +49,7 @@ class Vocabulary(NameMixIn):
             raise TypeError(f"Tokens must be of type str or iterable! Given '{type(tokens)}'")
 
     def idx2token(self, indices: Union[Iterable, List, int]) -> Union[List[Text], Text]:
-        """
-        Retrieve tokens from the vocabulary based on index. If out of bound, an unknown token name is provided instead.
+        """Retrieve tokens from the vocabulary based on index. If out of bound, an unknown token name is provided instead.
         """
         if isinstance(indices, Iterable):
             return [self.idx2token_dict.get(i, self.unknown_token.name) for i in indices]
