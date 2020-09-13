@@ -1,8 +1,8 @@
 import string
 from typing import Union, Text, List
 
+import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import torch
 from torchvision.transforms import Compose
 
@@ -54,7 +54,7 @@ class Translation:
         """
         trans_words = self.pred_tokens[:self.eos_index]
 
-        return sns.heatmap(data=self.attention_matrix,
+        return plt.matshow(self.attention_matrix,
                            xticklabels=trans_words,
                            yticklabels=self.input_tokens,
                            vmin=0,

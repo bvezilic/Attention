@@ -1,3 +1,4 @@
+import math
 from typing import List, Text
 
 import torch
@@ -39,10 +40,14 @@ class Encoder(nn.Module):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self):
+    def __init__(self, scaling_decay=0.01, max_iters=10000):
         super().__init__()
 
-    def forward(self, ht, encoder_outputs, mask_ids):
+        self.scaling_decay = scaling_decay
+        self.iterations = 0
+        self.max_iters = max_iters
+
+    def forward(self, ht, encoder_outputs, mask_ids, scaling_coef=0.0):
         """
         Args:
             ht: Hidden state of decoder RNN
@@ -51,6 +56,7 @@ class AttentionLayer(nn.Module):
                 shape=[batch_size, time_step, hidden_size]
             mask_ids: Boolean tensor for masking padded elements
                 shape=[batch_size, time_step]
+            scaling_coef: Coefficient to scale attention weights towards mean.
 
         Returns:
             contex_vec: Sum of attention weights and encoder outputs
@@ -75,7 +81,15 @@ class AttentionLayer(nn.Module):
         context_vec = torch.mean(attn_weights * encoder_outputs, dim=1)  # context_vec[B, h_size]
         attn_weights = attn_weights.squeeze(2)                          # attn_weights[B, T, 1] -> [B, T]
 
+        # if self.iterations < self.max_iters:
+        #     attn_weights = self.scale_weights(attn_weights)
+
         return context_vec, attn_weights
+
+    def scale_weights(self, weights):
+        coef = math.exp(-self.iterations * self.scaling_decay)
+        self.iterations += 1
+        return weights + coef * (weights.mean() - weights)
 
 
 class Decoder(nn.Module):
@@ -98,7 +112,8 @@ class Decoder(nn.Module):
 
         self.fc_attn_vec = nn.Sequential(
             nn.Linear(self.hidden_size * 2, self.attn_vec_size),
-            nn.Tanh()
+            nn.Tanh(),
+            nn.Dropout(0.5)
         )
 
         self.fc_classifier = nn.Linear(self.attn_vec_size, num_embeddings)
@@ -158,6 +173,13 @@ class Decoder(nn.Module):
             "hidden_state": ht
         }
 
+    def init_inputs(self, batch_size):
+        """Initialize the input and attention vector for the decoder"""
+        zero_ids = torch.zeros(batch_size, dtype=torch.long)  # Start index <PAD>
+        zero_attn_vec = torch.zeros(batch_size, self.attn_vec_size, dtype=torch.float)
+
+        return zero_ids, zero_attn_vec
+
 
 class Seq2Seq(BaseModel):
     def __init__(self,
@@ -166,6 +188,7 @@ class Seq2Seq(BaseModel):
                  hidden_size,
                  embedding_dim,
                  attn_vec_size,
+                 dec_hidden_inpt="average",
                  max_len=128,
                  device="cpu"):
         super().__init__()
@@ -174,6 +197,7 @@ class Seq2Seq(BaseModel):
         self.hidden_size = hidden_size
         self.embedding_dim = embedding_dim
         self.attn_vec_size = attn_vec_size
+        self.dec_hidden_inpt = dec_hidden_inpt
         self.max_len = max_len
         self.device = device
 
@@ -192,6 +216,7 @@ class Seq2Seq(BaseModel):
                 "hidden_size",
                 "embedding_dim",
                 "attn_vec_size",
+                "dec_hidden_inpt",
                 "max_len",
                 "device"]
 
@@ -219,8 +244,24 @@ class Seq2Seq(BaseModel):
         (enc_outputs, enc_ht) = self.encoder(inputs)
 
         # Initialize zero-vectors inputs for 1-time step for decoder
-        (input_ids, input_attn_vec) = self._init_start_input(batch_size=batch_size)
-        input_ht = enc_ht  # Take encoder hidden state for initial state for decoder
+        (input_ids, input_attn_vec) = self.decoder.init_inputs(batch_size=batch_size)
+
+        # Set tensors to device
+        input_ids = input_ids.to(self.device)
+        input_attn_vec = input_attn_vec.to(self.device)
+
+        if self.dec_hidden_inpt == "last":
+            # Set ht to the last state of encoder
+            input_ht = enc_ht  # Take encoder hidden state for initial state for decoder
+        elif self.dec_hidden_inpt == "zero":
+            # Set ht to be zeros (Didn't work quite well)
+            input_ht = torch.zeros(1, batch_size, self.hidden_size, device=self.device)
+        elif self.dec_hidden_inpt == "average":
+            # Set ht to be mean of encoder outputs
+            input_ht = enc_outputs.detach().mean(dim=1).unsqueeze(0)
+        else:
+            # Set ht to be zeros (Didn't work quite well)
+            input_ht = torch.zeros(1, batch_size, self.hidden_size, device=self.device)
 
         # Consolidate all inputs for prediction
         decoder_inputs = {
@@ -244,12 +285,6 @@ class Seq2Seq(BaseModel):
         output["predictions"] = torch.argmax(output["logits"], dim=2)       # predictions[B, T]
 
         return output
-
-    def _init_start_input(self, batch_size):
-        zero_ids = torch.zeros(batch_size, dtype=torch.long, device=self.device)  # Start index <PAD>
-        zero_attn_vec = torch.zeros(batch_size, self.decoder.attn_vec_size, dtype=torch.float, device=self.device)
-
-        return zero_ids, zero_attn_vec
 
     def prediction_with_teacher(self, targets, **kwargs):
         """

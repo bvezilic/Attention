@@ -6,6 +6,7 @@ from typing import Text, Callable
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import MultiStepLR
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, random_split, Subset
 from torchvision.transforms import Compose
@@ -29,6 +30,7 @@ class Trainer(NameMixIn):
                  dataset: NMTDataset,
                  model: Seq2Seq,
                  optimizer: Optimizer,
+                 scheduler: MultiStepLR,
                  criterion: Callable,
                  metric: Metric,
                  batch_size: int,
@@ -40,6 +42,7 @@ class Trainer(NameMixIn):
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.criterion = criterion
         self.metric = metric
         self.batch_size = batch_size
@@ -78,6 +81,7 @@ class Trainer(NameMixIn):
                f"dataset={self.dataset}\n" \
                f"model={self.model}\n" \
                f"optimizer={self.optimizer}\n" \
+               f"scheduler={self.scheduler}\n" \
                f"criterion={self.criterion}\n" \
                f"device={self.device}\n" \
                f"batch_size={self.batch_size}"
@@ -117,6 +121,7 @@ class Trainer(NameMixIn):
 
                 # Update weights
                 self.optimizer.step()
+                self.scheduler.step()
 
                 # Compute metric score
                 score = self.metric.score(y_pred=output["predictions"], y_true=targets)
@@ -147,8 +152,7 @@ class Trainer(NameMixIn):
         return train_history
 
     def eval(self) -> (float, float):
-        """
-        Run forward pass for test dataset and computes metric score
+        """Run forward pass for test dataset and computes metric score
         """
         self.model.eval()  # Set model to evaluation
 
@@ -184,8 +188,7 @@ class Trainer(NameMixIn):
             return epoch_loss, metric_score
 
     def train_test_split(self) -> (Subset, Subset):
-        """
-        Randomly splits dataset into 'train_subset' and 'test_subset'
+        """Randomly splits dataset into 'train_subset' and 'test_subset'
         """
         test_size = int(len(self.dataset) * self.test_split)
         train_size = len(self.dataset) - test_size
@@ -234,6 +237,9 @@ def train():
     # Initialize the optimizer
     optimizer = Adam(model.parameters(), lr=args.lr)
 
+    # Initialize the scheduler
+    scheduler = MultiStepLR(optimizer=optimizer, milestones=[5, 10, 30])
+
     # Initialize the loss criterion
     criterion = nn.CrossEntropyLoss(ignore_index=tar_vocab.pad_token.idx)
 
@@ -244,6 +250,7 @@ def train():
     trainer = Trainer(dataset=dataset,
                       model=model,
                       optimizer=optimizer,
+                      scheduler=scheduler,
                       criterion=criterion,
                       metric=metric,
                       batch_size=args.batch_size,
